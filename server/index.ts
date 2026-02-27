@@ -20,8 +20,20 @@ const app = express();
 
 // ── Middleware ────────────────────────────────────────────────
 app.use(compression());
+const allowedOrigins = [
+  process.env.CORS_ORIGIN,
+  "http://localhost:5173",
+  "http://localhost:3001",
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.some(o => origin.startsWith(o)) || origin.endsWith(".vercel.app")) {
+      return cb(null, true);
+    }
+    cb(null, true); // permissivo em produção — restringir pelo env se necessário
+  },
   credentials: true,
 }));
 app.use(cookieParser());
