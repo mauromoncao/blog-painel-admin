@@ -6,11 +6,19 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 30
+    },
+    "api/auth/google.js": {
+      "maxDuration": 10
+    },
+    "api/auth/google/callback.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.js" },
-    { "source": "/(.*)",       "destination": "/index.html" }
+    { "source": "/api/auth/google/callback", "destination": "/api/auth/google/callback.js" },
+    { "source": "/api/auth/google",          "destination": "/api/auth/google.js" },
+    { "source": "/api/:path*",               "destination": "/api/index.js" },
+    { "source": "/(.*)",                     "destination": "/index.html" }
   ],
   "headers": [
     {
