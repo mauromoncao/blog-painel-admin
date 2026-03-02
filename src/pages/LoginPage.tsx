@@ -40,7 +40,11 @@ export default function LoginPage() {
   }, []);
 
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data: any) => {
+      // Salvar token no localStorage para enviar no header Authorization
+      if (data?.token) {
+        localStorage.setItem("admin_token", data.token);
+      }
       await utils.auth.me.invalidate();
       setLocation("/dashboard");
     },

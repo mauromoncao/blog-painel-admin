@@ -17,7 +17,13 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/api/trpc",
       fetch(url, options) {
-        return fetch(url, { ...options, credentials: "include" });
+        // Enviar token do localStorage no header Authorization
+        const token = localStorage.getItem("admin_token");
+        const headers = new Headers((options?.headers as Record<string, string>) ?? {});
+        if (token) {
+          headers.set("Authorization", `Bearer ${token}`);
+        }
+        return fetch(url, { ...options, credentials: "include", headers });
       },
     }),
   ],

@@ -30,6 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await logoutMutation.mutateAsync();
+    localStorage.removeItem("admin_token");
     setUser(null);
     window.location.href = "/login";
   };
