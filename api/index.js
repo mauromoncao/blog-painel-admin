@@ -58,41 +58,50 @@ export default async function handler(req, res) {
   if (url.includes("/api/trpc/auth.login") || url.includes("/api/auth/login")) {
     try {
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-      const input = body?.json ?? body?.input ?? body;
+      // tRPC envia em 3 formatos possíveis:
+      // 1. batch:  { "0": { json: { email, password } } }
+      // 2. normal: { json: { email, password } }
+      // 3. direto: { email, password }
+      const inner = body?.["0"] ?? body;
+      const input = inner?.json ?? inner?.input ?? inner;
       const { email, password } = input ?? {};
 
       const user = USERS.find(u => u.email?.toLowerCase() === email?.toLowerCase());
-      if (!user) return res.status(200).json({ error: { message: "Credenciais inválidas" } });
+      if (!user) return res.status(200).json([{ error: { json: { message: "Credenciais inválidas" } } }]);
 
       const ok = await bcrypt.compare(password, user.passwordHash);
-      if (!ok) return res.status(200).json({ error: { message: "Credenciais inválidas" } });
+      if (!ok) return res.status(200).json([{ error: { json: { message: "Credenciais inválidas" } } }]);
 
       const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "7d" });
       setAuthCookie(res, token);
-      // Retornar token no body também (para localStorage no frontend)
-      return res.status(200).json({
-        result: {
-          data: {
-            json: {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-              token, // ← JWT no body para localStorage
-            }
-          }
-        }
-      });
+
+      const payload = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        token,
+      };
+
+      // tRPC batch espera array: [{result:{data:{json:{...}}}}]
+      // tRPC normal espera: {result:{data:{json:{...}}}}
+      const isBatch = url.includes("batch=1") || body?.["0"] !== undefined;
+      if (isBatch) {
+        return res.status(200).json([{ result: { data: { json: payload } } }]);
+      }
+      return res.status(200).json({ result: { data: { json: payload } } });
     } catch (e) {
-      return res.status(500).json({ error: { message: "Erro interno: " + e.message } });
+      return res.status(500).json([{ error: { json: { message: "Erro interno: " + e.message } } }]);
     }
   }
 
   // ── GET /api/auth/me ──────────────────────────────────────
   if (url.includes("/api/trpc/auth.me") || url.includes("/api/auth/me")) {
     const user = getUserFromToken(req);
-    if (!user) return res.status(200).json({ result: { data: { json: null } } });
-    return res.status(200).json({ result: { data: { json: { id: user.id, name: user.name, email: user.email, role: user.role } } } });
+    const data = user ? { id: user.id, name: user.name, email: user.email, role: user.role } : null;
+    const isBatch = url.includes("batch=1");
+    if (isBatch) return res.status(200).json([{ result: { data: { json: data } } }]);
+    return res.status(200).json({ result: { data: { json: data } } });
   }
 
   // ── POST /api/auth/logout ─────────────────────────────────
