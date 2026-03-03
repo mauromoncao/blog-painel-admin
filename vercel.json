@@ -17,6 +17,7 @@
   "rewrites": [
     { "source": "/api/auth/google/callback", "destination": "/api/auth/google/callback.js" },
     { "source": "/api/auth/google",          "destination": "/api/auth/google.js" },
+    { "source": "/api/login-direto",         "destination": "/api/login-direto.js" },
     { "source": "/api/:path*",               "destination": "/api/index.js" },
     { "source": "/(.*)",                     "destination": "/index.html" }
   ],
