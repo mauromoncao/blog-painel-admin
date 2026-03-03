@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { trpc } from "../lib/trpc";
 
 interface AuthUser {
   id: number;
@@ -16,20 +15,48 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: () => {} });
 
+// Busca o usuário atual pelo token no localStorage (fetch direto, sem tRPC)
+async function fetchMe(): Promise<AuthUser | null> {
+  const token = localStorage.getItem("admin_token");
+  if (!token) return null;
+  try {
+    const res = await fetch("/api/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    // Suporte a dois formatos: {id,name,...} ou {result:{data:{json:{...}}}}
+    const data = json?.result?.data?.json ?? json;
+    if (data?.id) return data as AuthUser;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const meQuery = trpc.auth.me.useQuery(undefined, { retry: false });
-  const logoutMutation = trpc.auth.logout.useMutation();
 
   useEffect(() => {
-    if (meQuery.isLoading) return;
-    setUser(meQuery.data ?? null);
-    setLoading(false);
-  }, [meQuery.data, meQuery.isLoading]);
+    fetchMe().then((u) => {
+      setUser(u);
+      setLoading(false);
+    });
+  }, []);
 
   const logout = async () => {
-    await logoutMutation.mutateAsync();
+    try {
+      const token = localStorage.getItem("admin_token");
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+      });
+    } catch {
+      // ignora
+    }
     localStorage.removeItem("admin_token");
     setUser(null);
     window.location.href = "/login";

@@ -1,81 +1,82 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
-import { trpc } from "../lib/trpc";
 import { toast } from "sonner";
 
 const GOLD = "#E8B84B";
 const NAVY = "#19385C";
 
-// ── Emails autorizados (whitelist) ─────────────────────────
 const ALLOWED_EMAILS = [
   "mauromoncaoestudos@gmail.com",
   "mauromoncaoadv.escritorio@gmail.com",
 ];
 
 export default function LoginPage() {
-  const [, setLocation] = useLocation();
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading]   = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const utils = trpc.useUtils();
 
-  // ── Mostrar erros de OAuth vindos da URL ──────────────────
+  // Mostrar erros de OAuth vindos da URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const err = params.get("error");
     const errorMessages: Record<string, string> = {
-      email_not_authorized: "⛔ E-mail não autorizado. Somente administradores cadastrados.",
-      google_denied:        "Login com Google cancelado.",
-      google_not_configured:"Google OAuth não configurado no servidor.",
-      account_inactive:     "Conta inativa. Contate o administrador.",
-      google_token_failed:  "Falha na autenticação Google. Tente novamente.",
-      google_internal_error:"Erro interno. Tente novamente.",
+      email_not_authorized:  "⛔ E-mail não autorizado. Somente administradores cadastrados.",
+      google_denied:         "Login com Google cancelado.",
+      google_not_configured: "Google OAuth não configurado no servidor.",
+      account_inactive:      "Conta inativa. Contate o administrador.",
+      google_token_failed:   "Falha na autenticação Google. Tente novamente.",
+      google_internal_error: "Erro interno. Tente novamente.",
     };
     if (err && errorMessages[err]) {
       toast.error(errorMessages[err]);
-      // Limpar da URL
       window.history.replaceState({}, "", "/login");
     }
   }, []);
-
-  const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async (data: any) => {
-      // Salvar token no localStorage
-      if (data?.token) {
-        localStorage.setItem("admin_token", data.token);
-      }
-      // Redirecionar com reload completo para o tRPC client
-      // ser recriado já com o token no header Authorization
-      window.location.href = "/dashboard";
-    },
-    onError: (e) => {
-      toast.error(e.message ?? "Credenciais inválidas");
-    },
-  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) { toast.error("Preencha todos os campos"); return; }
 
-    // Validar whitelist antes de tentar login
-    if (!ALLOWED_EMAILS.includes(email.toLowerCase().trim())) {
+    const emailNorm = email.toLowerCase().trim();
+    if (!ALLOWED_EMAILS.includes(emailNorm)) {
       toast.error("Acesso não autorizado para este e-mail.");
       return;
     }
 
     setLoading(true);
     try {
-      await loginMutation.mutateAsync({ email, password });
+      // Usar fetch direto — sem tRPC — para evitar problema de token
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: emailNorm, password }),
+      });
+
+      const json = await res.json();
+
+      // Suporta dois formatos de resposta
+      const data = json?.result?.data?.json ?? json;
+
+      if (!res.ok || data?.error || !data?.token) {
+        const msg = data?.error?.message ?? data?.message ?? "Credenciais inválidas";
+        toast.error(msg);
+        return;
+      }
+
+      // Salvar token e redirecionar
+      localStorage.setItem("admin_token", data.token);
+      window.location.href = "/dashboard";
+
+    } catch (err: any) {
+      toast.error("Erro de conexão. Tente novamente.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Google OAuth ──────────────────────────────────────────
   const handleGoogleLogin = () => {
     setGoogleLoading(true);
-    // Redireciona para endpoint Google OAuth no servidor
     window.location.href = "/api/auth/google";
   };
 
@@ -85,7 +86,6 @@ export default function LoginPage() {
       style={{ background: `linear-gradient(135deg, ${NAVY} 0%, #0f2240 100%)` }}
     >
       <div className="w-full max-w-md mx-4">
-        {/* Card */}
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
 
           {/* Header */}
@@ -110,7 +110,7 @@ export default function LoginPage() {
           {/* Form */}
           <div className="px-8 py-8 space-y-5">
 
-            {/* ── Botão Google OAuth ─────────────────────── */}
+            {/* Botão Google OAuth */}
             <button
               type="button"
               onClick={handleGoogleLogin}
@@ -130,14 +130,14 @@ export default function LoginPage() {
               {googleLoading ? "Redirecionando…" : "Entrar com Google"}
             </button>
 
-            {/* ── Divisor ─────────────────────────────────── */}
+            {/* Divisor */}
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-gray-200" />
               <span className="text-xs text-gray-400 font-medium">ou com e-mail e senha</span>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
 
-            {/* ── Formulário e-mail/senha ──────────────────── */}
+            {/* Formulário e-mail/senha */}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold mb-1.5 text-gray-700">E-mail</label>
