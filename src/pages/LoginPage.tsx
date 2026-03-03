@@ -41,12 +41,13 @@ export default function LoginPage() {
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data: any) => {
-      // Salvar token no localStorage para enviar no header Authorization
+      // Salvar token no localStorage
       if (data?.token) {
         localStorage.setItem("admin_token", data.token);
       }
-      await utils.auth.me.invalidate();
-      setLocation("/dashboard");
+      // Redirecionar com reload completo para o tRPC client
+      // ser recriado já com o token no header Authorization
+      window.location.href = "/dashboard";
     },
     onError: (e) => {
       toast.error(e.message ?? "Credenciais inválidas");
