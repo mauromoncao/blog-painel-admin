@@ -2,7 +2,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "BenAdmin2026!SecretJWT#Mauro";
+const JWT_SECRET = process.env.JWT_SECRET ?? "";
 
 // ── Usuários fixos no código ──────────────────────────────────
 const USERS = [
@@ -11,16 +11,14 @@ const USERS = [
     email: "mauromoncaoestudos@gmail.com",
     name: "Mauro Monção",
     role: "admin",
-    // senha: MauroAdv@2026!
-    passwordHash: "$2a$12$ioDr0NRugsdSl0SchTjlW.FK88Q2C8YWNWGKNXfF/hiQPwEM327CC",
+    passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
   },
   {
     id: 2,
     email: "mauromoncaoadv.escritorio@gmail.com",
     name: "Escritório Mauro Monção",
     role: "admin",
-    // senha: MauroAdv@2026!
-    passwordHash: "$2a$12$ioDr0NRugsdSl0SchTjlW.FK88Q2C8YWNWGKNXfF/hiQPwEM327CC",
+    passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
   },
 ];
 
