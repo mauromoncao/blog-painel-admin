@@ -44,7 +44,8 @@ const authRouter = router({
       ctx.res.cookie("admin_token", token, {
         httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 7 * 86400 * 1000,
       });
-      return { id: user.id, name: user.name, email: user.email, role: user.role };
+      // token retornado no body para o frontend salvar no localStorage
+      return { id: user.id, name: user.name, email: user.email, role: user.role, token };
     }),
 
   logout: publicProc.mutation(({ ctx }) => {

@@ -4,10 +4,14 @@ import * as schema from "../shared/schema.js";
 import { eq, desc, like, and, or, sql, count } from "drizzle-orm";
 
 const connectionString = process.env.DATABASE_URL;
-if (!connectionString) throw new Error("DATABASE_URL is required");
+// Em produção no Vercel usamos api/index.js (serverless sem banco)
+// O server/ com banco só roda localmente — não travar o build se DATABASE_URL ausente
+if (!connectionString && process.env.NODE_ENV !== "production") {
+  throw new Error("DATABASE_URL is required");
+}
 
-const client = postgres(connectionString, { max: 10 });
-export const db = drizzle(client, { schema });
+const client = connectionString ? postgres(connectionString, { max: 10 }) : null as any;
+export const db = connectionString ? drizzle(client, { schema }) : null as any;
 
 // ── Auth ─────────────────────────────────────────────────────
 export async function getAdminByEmail(email: string) {
