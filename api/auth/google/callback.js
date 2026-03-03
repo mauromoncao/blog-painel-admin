@@ -1,19 +1,20 @@
 // api/auth/google/callback.js — Vercel Serverless Function
-// Callback do Google OAuth — troca code por token, verifica email, gera JWT
+// Callback do Google OAuth — SEM BANCO DE DADOS
+// Usa usuários fixos igual ao api/index.js
 
 import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
-import { db, getAdminByEmail, createAdminUser, updateLastSignedIn } from "../../../server/db.js";
 
-const ALLOWED_EMAILS = [
-  "mauromoncaoestudos@gmail.com",
-  "mauromoncaoadv.escritorio@gmail.com",
+const JWT_SECRET = process.env.JWT_SECRET ?? "change-me";
+
+// Mesmos usuários do api/index.js — sem banco necessário
+const USERS = [
+  { id: 1, email: "mauromoncaoestudos@gmail.com",        name: "Mauro Monção",           role: "admin" },
+  { id: 2, email: "mauromoncaoadv.escritorio@gmail.com", name: "Escritório Mauro Monção", role: "admin" },
 ];
 
 export default async function handler(req, res) {
   const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     ?? "";
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-  const JWT_SECRET           = process.env.JWT_SECRET            ?? "change-me";
 
   const { code, error } = req.query;
 
@@ -21,13 +22,15 @@ export default async function handler(req, res) {
     return res.redirect("/login?error=google_denied");
   }
 
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return res.redirect("/login?error=google_not_configured");
+  }
+
   try {
-    // Base URL
+    // Base URL dinâmica
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-      ? process.env.NEXT_PUBLIC_APP_URL
-      : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
+      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+      ?? `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
 
     const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
@@ -51,52 +54,34 @@ export default async function handler(req, res) {
 
     const tokens = await tokenRes.json();
 
-    // 2. Buscar perfil do usuário
+    // 2. Buscar perfil do usuário no Google
     const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
 
     if (!profileRes.ok) {
-      return res.redirect("/login?error=google_profile_failed");
+      return res.redirect("/login?error=google_token_failed");
     }
 
     const profile = await profileRes.json();
     const email   = profile.email?.toLowerCase().trim() ?? "";
 
-    // 3. Verificar whitelist
-    if (!ALLOWED_EMAILS.includes(email)) {
+    // 3. Verificar se email está na lista autorizada (sem banco!)
+    const user = USERS.find(u => u.email === email);
+    if (!user) {
       console.warn(`[Google OAuth] Acesso negado: ${email}`);
       return res.redirect("/login?error=email_not_authorized");
     }
 
-    // 4. Buscar ou criar usuário admin
-    let user = await getAdminByEmail(email);
-    if (!user) {
-      const randomPassword = Math.random().toString(36) + Date.now().toString(36);
-      const hash = await bcrypt.hash(randomPassword, 12);
-      user = await createAdminUser({
-        email,
-        name: profile.name ?? email.split("@")[0],
-        passwordHash: hash,
-        role: "admin",
-        isActive: true,
-      });
-    }
-
-    if (!user.isActive) {
-      return res.redirect("/login?error=account_inactive");
-    }
-
-    await updateLastSignedIn(user.id);
-
-    // 5. Gerar JWT e setar cookie
+    // 4. Gerar JWT e setar cookie HttpOnly (sem banco!)
     const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "7d" });
 
-    res.setHeader("Set-Cookie", [
-      `admin_token=${token}; HttpOnly; Path=/; Max-Age=${7 * 86400}; SameSite=Lax; Secure`,
-    ]);
+    res.setHeader("Set-Cookie",
+      `admin_token=${token}; HttpOnly; Path=/; Max-Age=${7 * 86400}; SameSite=Lax; Secure`
+    );
 
-    return res.redirect("/dashboard");
+    // 5. Também salvar token na URL para o frontend guardar no localStorage
+    return res.redirect(`/login-success?token=${encodeURIComponent(token)}`);
 
   } catch (err) {
     console.error("[Google OAuth] Erro interno:", err);

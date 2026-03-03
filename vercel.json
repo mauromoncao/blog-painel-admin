@@ -12,12 +12,20 @@
     },
     "api/auth/google/callback.js": {
       "maxDuration": 30
+    },
+    "api/login-direto.js": {
+      "maxDuration": 10
+    },
+    "api/login-success.js": {
+      "maxDuration": 5
     }
   },
   "rewrites": [
     { "source": "/api/auth/google/callback", "destination": "/api/auth/google/callback.js" },
     { "source": "/api/auth/google",          "destination": "/api/auth/google.js" },
     { "source": "/api/login-direto",         "destination": "/api/login-direto.js" },
+    { "source": "/api/login-success",        "destination": "/api/login-success.js" },
+    { "source": "/login-success",            "destination": "/api/login-success.js" },
     { "source": "/api/:path*",               "destination": "/api/index.js" },
     { "source": "/(.*)",                     "destination": "/index.html" }
   ],
