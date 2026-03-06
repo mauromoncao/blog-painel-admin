@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useQuery, useMutation } from "../lib/useApi";
 import { slugify, wordCount, readTime } from "../lib/utils";
 import { toast } from "sonner";
+import RichEditor from "../components/RichEditor";
 import {
   ArrowLeft, Save, Globe, Eye, EyeOff, Image, Video, Tag,
   FileText, Settings, Search, Star, Calendar, Clock, BookOpen,
@@ -283,11 +284,14 @@ export default function PostEditor() {
                   className="input resize-none" />
               </div>
               <div>
-                <label className="label">Conteúdo (HTML)</label>
-                <textarea value={form.content} onChange={e => set("content", e.target.value)}
-                  rows={20} placeholder="<p>Corpo do artigo em HTML…</p>"
-                  className="input resize-y font-mono text-sm" />
-                <p className="text-xs text-gray-400 mt-1">{wc} palavras · {rt} min de leitura estimada</p>
+                <label className="label">Conteúdo da Matéria</label>
+                <RichEditor
+                  value={form.content}
+                  onChange={html => set("content", html)}
+                  placeholder="Escreva o conteúdo da matéria aqui..."
+                  minHeight={500}
+                />
+                <p className="text-xs text-gray-400 mt-2">{wc} palavras · {rt} min de leitura estimada</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
