@@ -261,8 +261,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    await ensureTables();
-    const sql = getDb();
+    // Tenta conectar ao banco — se falhar, retorna erro claro
+    let sql;
+    try {
+      await ensureTables();
+      sql = getDb();
+    } catch (dbConnErr) {
+      return errResp(res, "Banco de dados indisponível. Verifique DATABASE_URL no Vercel. (" + dbConnErr.message + ")", batch);
+    }
 
     if (url.includes("dashboard.stats")) {
       const [p, pub, dr, sc, ar, cat, med, lea, nlea, faq] = await Promise.all([
