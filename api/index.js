@@ -201,6 +201,45 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const url = req.url ?? "";
+
+  // ── /api/upload — Upload de imagem via base64 ─────────────────
+  if (url.includes("/api/upload") && req.method === "POST") {
+    try {
+      const uploadUser = await getUserFromToken(req);
+      if (!uploadUser) return res.status(401).json({ error: "Não autorizado" });
+
+      const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body ?? {});
+      const { name, type, size, data: base64Data } = body;
+
+      if (!base64Data || !name || !type) {
+        return res.status(400).json({ error: "Campos obrigatórios: name, type, data (base64)" });
+      }
+      if (size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "Arquivo excede 5MB" });
+      }
+      if (!type.startsWith("image/")) {
+        return res.status(400).json({ error: "Apenas imagens são permitidas" });
+      }
+
+      // Gera URL de dados (data URL) — funciona sem storage externo
+      const dataUrl = base64Data.startsWith("data:") ? base64Data : `data:${type};base64,${base64Data}`;
+
+      await ensureTables();
+      const sql = getDb();
+      const fileKey = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const rows = await sql`
+        INSERT INTO media_files (filename, "originalName", "mimeType", size, url, "fileKey", alt)
+        VALUES (${fileKey}, ${name}, ${type}, ${size ?? 0}, ${dataUrl}, ${fileKey}, ${name})
+        RETURNING *
+      `;
+      return res.status(200).json(rows[0]);
+    } catch (e) {
+      console.error("[Upload Error]", e.message);
+      return res.status(500).json({ error: "Erro no upload: " + e.message });
+    }
+  }
+
+  const url = req.url ?? "";
   const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body ?? {});
   const batch = isBatchReq(url, body);
   const input = parseInput(body);

@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
 import { trpc } from "../lib/trpc";
 import { slugify, wordCount, readTime } from "../lib/utils";
 import { toast } from "sonner";
 import {
   ArrowLeft, Save, Globe, Eye, EyeOff, Image, Video, Tag,
-  FileText, Settings, Search, Star, Calendar, Clock, BookOpen
+  FileText, Settings, Search, Star, Calendar, Clock, BookOpen,
+  Upload, Link, X, Check
 } from "lucide-react";
 
 const GOLD = "#E8B84B";
@@ -76,6 +77,9 @@ export default function PostEditor() {
   const [slugManual, setSlugManual] = useState(false);
   const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [urlMode, setUrlMode] = useState(false);
+  const coverFileRef = useRef<HTMLInputElement>(null);
 
   const { data: existingPost } = trpc.blog.getById.useQuery(
     { id: postId! }, { enabled: !!postId }
@@ -140,6 +144,36 @@ export default function PostEditor() {
       setForm(f => ({ ...f, status }));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Upload do computador → converte para base64 → envia para /api/upload
+  const handleCoverUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) { toast.error("Apenas imagens são permitidas"); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Arquivo excede 5MB"); return; }
+    setUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const token = localStorage.getItem("admin_token");
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ name: file.name, type: file.type, size: file.size, data: base64 }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Upload falhou"); }
+      const media = await res.json();
+      set("coverImage", media.url);
+      set("coverImageAlt", media.originalName.replace(/\.[^.]+$/, ""));
+      toast.success("Imagem enviada com sucesso!");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro no upload");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -281,23 +315,86 @@ export default function PostEditor() {
           {/* ── MEDIA TAB ── */}
           {tab === "media" && (
             <div className="space-y-6">
+              {/* Imagem de Capa */}
               <div>
-                <label className="label">URL da imagem de capa</label>
-                <input value={form.coverImage} onChange={e => set("coverImage", e.target.value)}
-                  placeholder="https://… ou /uploads/…"
-                  className="input" />
+                <label className="label flex items-center justify-between">
+                  <span>Imagem de Capa</span>
+                  <div className="flex items-center gap-1 text-xs font-normal">
+                    <button onClick={() => setUrlMode(false)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition ${!urlMode ? "text-white font-semibold" : "text-gray-500 hover:bg-gray-100"}`}
+                      style={!urlMode ? { background: NAVY } : {}}>
+                      <Upload size={11} /> Do computador
+                    </button>
+                    <button onClick={() => setUrlMode(true)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition ${urlMode ? "text-white font-semibold" : "text-gray-500 hover:bg-gray-100"}`}
+                      style={urlMode ? { background: NAVY } : {}}>
+                      <Link size={11} /> Por URL
+                    </button>
+                  </div>
+                </label>
+
+                {/* Modo: Upload do computador */}
+                {!urlMode && (
+                  <div
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleCoverUpload(f); }}
+                    onClick={() => coverFileRef.current?.click()}
+                    className="relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all hover:border-[#E8B84B] hover:bg-amber-50/30"
+                    style={{ borderColor: uploading ? GOLD : undefined }}>
+                    <input ref={coverFileRef} type="file" accept="image/*" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleCoverUpload(f); }} />
+                    {uploading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin" />
+                        <p className="text-sm text-amber-600 font-medium">Enviando imagem…</p>
+                      </div>
+                    ) : (
+                      <>
+                        <Upload size={28} className="mx-auto mb-2 text-gray-300" />
+                        <p className="text-sm text-gray-500">
+                          <span className="font-semibold" style={{ color: GOLD }}>Clique para selecionar</span> ou arraste a imagem aqui
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">JPG, PNG, WebP, GIF · máx. 5MB</p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Modo: URL externa */}
+                {urlMode && (
+                  <input value={form.coverImage} onChange={e => set("coverImage", e.target.value)}
+                    placeholder="https://exemplo.com/imagem.jpg"
+                    className="input" />
+                )}
+
+                {/* Preview da imagem selecionada */}
                 {form.coverImage && (
-                  <div className="mt-3 rounded-xl overflow-hidden border border-gray-200 max-h-48">
-                    <img src={form.coverImage} alt={form.coverImageAlt || "Capa"} className="w-full h-48 object-cover" />
+                  <div className="mt-3 relative rounded-xl overflow-hidden border border-gray-200">
+                    <img src={form.coverImage} alt={form.coverImageAlt || "Capa"}
+                      className="w-full h-52 object-cover" />
+                    <div className="absolute top-2 right-2 flex gap-2">
+                      <span className="flex items-center gap-1 bg-green-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+                        <Check size={11} /> Imagem definida
+                      </span>
+                      <button onClick={() => { set("coverImage", ""); set("coverImageAlt", ""); }}
+                        className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600">
+                        <X size={13} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
+
+              {/* Alt text */}
               <div>
-                <label className="label">Alt text da imagem de capa</label>
+                <label className="label">Descrição (Alt text) da imagem de capa</label>
                 <input value={form.coverImageAlt} onChange={e => set("coverImageAlt", e.target.value)}
-                  placeholder="Descrição acessível da imagem"
+                  placeholder="Ex: Advogado explicando planejamento tributário"
                   className="input" />
+                <p className="text-xs text-gray-400 mt-1">Importante para acessibilidade e SEO</p>
               </div>
+
+              {/* Vídeo */}
               <div>
                 <label className="label">URL do Vídeo (YouTube, Vimeo ou link direto)</label>
                 <input value={form.videoUrl} onChange={e => set("videoUrl", e.target.value)}
@@ -308,10 +405,6 @@ export default function PostEditor() {
                     <iframe src={getEmbedUrl(form.videoUrl)} className="w-full h-full" allowFullScreen title="Vídeo" />
                   </div>
                 )}
-              </div>
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
-                <p className="font-medium mb-1">💡 Dica</p>
-                <p>Use a <a href="/media" className="underline font-medium">Biblioteca de Mídia</a> para fazer upload de imagens e copiar a URL.</p>
               </div>
             </div>
           )}
