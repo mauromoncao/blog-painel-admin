@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { slugify, wordCount, readTime } from "../lib/utils";
 import { toast } from "sonner";
 import {
@@ -81,17 +82,12 @@ export default function PostEditor() {
   const [urlMode, setUrlMode] = useState(false);
   const coverFileRef = useRef<HTMLInputElement>(null);
 
-  const { data: existingPost } = trpc.blog.getById.useQuery(
-    { id: postId! }, { enabled: !!postId }
+  const { data: existingPost } = useQuery(
+    () => postId ? api.blog.getById(postId) : Promise.resolve(null),
+    null as any
   );
-  const { data: categories = [] } = trpc.categories.list.useQuery();
-  const upsertMutation = trpc.blog.upsert.useMutation({
-    onSuccess: (post) => {
-      toast.success(form.status === "published" ? "Publicado com sucesso!" : "Salvo como rascunho");
-      if (!postId) setLocation(`/blog/${post.id}/edit`);
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const { data: categories = [] } = useQuery(() => api.categories.list(), []);
+  const upsertMutation = useMutation((data: any) => api.blog.upsert(data));
 
   useEffect(() => {
     if (existingPost) {
@@ -134,14 +130,18 @@ export default function PostEditor() {
     if (!form.slug.trim())  { toast.error("Slug é obrigatório"); setTab("content"); return; }
     setSaving(true);
     try {
-      await upsertMutation.mutateAsync({
+      const post = await upsertMutation.mutateAsync({
         id:   postId,
         ...form, status,
         publishedAt: form.publishedAt || undefined,
         scheduledAt: form.scheduledAt || undefined,
         isFeatured: form.isFeatured,
       });
+      toast.success(status === "published" ? "Publicado com sucesso!" : "Salvo como rascunho");
       setForm(f => ({ ...f, status }));
+      if (!postId && post?.id) setLocation(`/blog/${post.id}/edit`);
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar");
     } finally {
       setSaving(false);
     }

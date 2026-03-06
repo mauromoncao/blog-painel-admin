@@ -1,5 +1,6 @@
 import { useLocation } from "wouter";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery } from "../lib/useApi";
 import { formatDate } from "../lib/utils";
 import {
   FileText, CheckCircle, Clock, Archive, Tag, Image, Users, HelpCircle,
@@ -47,9 +48,9 @@ function QuickAction({ icon: Icon, label, href, color }: { icon: any; label: str
 }
 
 export default function Dashboard() {
-  const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
-  const { data: recentLeads } = trpc.dashboard.recentLeads.useQuery();
-  const { data: recentPosts } = trpc.dashboard.recentPosts.useQuery();
+  const { data: stats, isLoading } = useQuery(() => api.dashboard.stats(), null as any);
+  const { data: recentLeads } = useQuery(() => api.dashboard.recentLeads(), []);
+  const { data: recentPosts } = useQuery(() => api.dashboard.recentPosts(), []);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">

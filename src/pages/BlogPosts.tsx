@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { formatDate, truncate } from "../lib/utils";
 import { toast } from "sonner";
-import { Plus, Search, Pencil, Trash2, Eye, Star, StarOff, CheckCircle, Clock, Archive, FileText } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Star, StarOff, CheckCircle, Clock, Archive, FileText } from "lucide-react";
 
 const GOLD  = "#E8B84B";
 const NAVY  = "#19385C";
@@ -25,49 +26,49 @@ const STATUS_STYLE: Record<string, { label: string; bg: string; color: string; i
 
 export default function BlogPosts() {
   const [, setLocation] = useLocation();
-  const [search, setSearch]           = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [confirmDelete, setConfirmDelete]   = useState<number | null>(null);
+  const [search, setSearch]                     = useState("");
+  const [statusFilter, setStatusFilter]         = useState("");
+  const [categoryFilter, setCategoryFilter]     = useState("");
+  const [confirmDelete, setConfirmDelete]       = useState<number | null>(null);
 
-  const { data: posts = [], isLoading, refetch } = trpc.blog.list.useQuery();
-  const { data: categories = [] } = trpc.categories.list.useQuery();
-  const deleteMutation  = trpc.blog.delete.useMutation({ onSuccess: () => { toast.success("Post excluído"); refetch(); } });
-  const upsertMutation  = trpc.blog.upsert.useMutation({ onSuccess: () => { toast.success("Post atualizado"); refetch(); } });
+  const { data: posts = [], isLoading, refetch } = useQuery(() => api.blog.list(), []);
+  const { data: categories = [] }               = useQuery(() => api.categories.list(), []);
+  const deleteMutation                          = useMutation((id: number) => api.blog.delete(id));
+  const upsertMutation                          = useMutation((d: any) => api.blog.upsert(d));
 
   const filtered = posts.filter(p => {
     const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.slug.toLowerCase().includes(search.toLowerCase());
     const matchStatus = !statusFilter || p.status === statusFilter;
-    const matchCat = !categoryFilter || p.category === categoryFilter;
+    const matchCat    = !categoryFilter || p.category === categoryFilter;
     return matchSearch && matchStatus && matchCat;
   });
 
   const togglePublish = (post: typeof posts[number]) => {
     const newStatus = post.status === "published" ? "draft" : "published";
-    upsertMutation.mutate({
+    upsertMutation.mutateAsync({
       id: post.id,
       slug: post.slug,
       title: post.title,
       status: newStatus as "draft" | "published",
-      subtitle: post.subtitle ?? undefined,
-      excerpt: post.excerpt ?? undefined,
-      content: post.content ?? undefined,
-      coverImage: post.coverImage ?? undefined,
-      coverImageAlt: post.coverImageAlt ?? undefined,
-      videoUrl: post.videoUrl ?? undefined,
-      authorName: post.authorName ?? undefined,
-      category: post.category ?? undefined,
-      tags: post.tags ?? undefined,
-      metaTitle: post.metaTitle ?? undefined,
+      subtitle:        post.subtitle        ?? undefined,
+      excerpt:         post.excerpt         ?? undefined,
+      content:         post.content         ?? undefined,
+      coverImage:      post.coverImage      ?? undefined,
+      coverImageAlt:   post.coverImageAlt   ?? undefined,
+      videoUrl:        post.videoUrl        ?? undefined,
+      authorName:      post.authorName      ?? undefined,
+      category:        post.category        ?? undefined,
+      tags:            post.tags            ?? undefined,
+      metaTitle:       post.metaTitle       ?? undefined,
       metaDescription: post.metaDescription ?? undefined,
-      metaKeywords: post.metaKeywords ?? undefined,
-      ogImage: post.ogImage ?? undefined,
-      ctaText: post.ctaText ?? undefined,
-      ctaUrl: post.ctaUrl ?? undefined,
-      isFeatured: post.isFeatured,
-      publishedAt: post.publishedAt?.toString() ?? undefined,
-      scheduledAt: post.scheduledAt?.toString() ?? undefined,
-    });
+      metaKeywords:    post.metaKeywords    ?? undefined,
+      ogImage:         post.ogImage         ?? undefined,
+      ctaText:         post.ctaText         ?? undefined,
+      ctaUrl:          post.ctaUrl          ?? undefined,
+      isFeatured:      post.isFeatured,
+      publishedAt:     post.publishedAt?.toString()  ?? undefined,
+      scheduledAt:     post.scheduledAt?.toString()  ?? undefined,
+    }).then(() => { toast.success("Post atualizado"); refetch(); }).catch(e => toast.error(e.message));
   };
 
   return (
@@ -160,7 +161,9 @@ export default function BlogPosts() {
                         </span>
                       </td>
                       <td className="px-4 py-4 text-center hidden md:table-cell">
-                        {post.isFeatured ? <Star size={16} fill={GOLD} color={GOLD} /> : <StarOff size={16} className="text-gray-300" />}
+                        {post.isFeatured
+                          ? <Star size={16} fill={GOLD} color={GOLD} />
+                          : <StarOff size={16} className="text-gray-300" />}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
@@ -192,7 +195,13 @@ export default function BlogPosts() {
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">
                 Cancelar
               </button>
-              <button onClick={() => { deleteMutation.mutate({ id: confirmDelete }); setConfirmDelete(null); }}
+              <button
+                onClick={() => {
+                  deleteMutation.mutateAsync(confirmDelete!)
+                    .then(() => { toast.success("Post excluído"); refetch(); })
+                    .catch(e => toast.error(e.message));
+                  setConfirmDelete(null);
+                }}
                 className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600">
                 Excluir
               </button>

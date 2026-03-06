@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, X, HelpCircle } from "lucide-react";
 
@@ -12,15 +13,17 @@ export default function FaqAdmin() {
   const [editing, setEditing] = useState<FaqForm | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
-  const { data: faqs = [], isLoading, refetch } = trpc.faq.list.useQuery();
-  const upsert = trpc.faq.upsert.useMutation({ onSuccess: () => { toast.success("FAQ salvo!"); setEditing(null); refetch(); }, onError: e => toast.error(e.message) });
-  const del    = trpc.faq.delete.useMutation({ onSuccess: () => { toast.success("Excluído!"); refetch(); setConfirmDelete(null); }, onError: e => toast.error(e.message) });
+  const { data: faqs = [], isLoading, refetch } = useQuery(() => api.faq.list(), []);
+  const upsert = useMutation((d: any) => api.faq.upsert(d));
+  const del    = useMutation((id: number) => api.faq.delete(id));
 
   const save = () => {
     if (!editing) return;
     if (!editing.question.trim()) { toast.error("Pergunta é obrigatória"); return; }
     if (!editing.answer.trim())   { toast.error("Resposta é obrigatória"); return; }
-    upsert.mutate(editing);
+    upsert.mutateAsync(editing)
+      .then(() => { toast.success("FAQ salvo!"); setEditing(null); refetch(); })
+      .catch(e => toast.error(e.message));
   };
   const set = (k: keyof FaqForm, v: any) => setEditing(f => f ? { ...f, [k]: v } : f);
 
@@ -97,10 +100,10 @@ export default function FaqAdmin() {
             </div>
             <div className="flex gap-3 px-6 pb-6">
               <button onClick={() => setEditing(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium">Cancelar</button>
-              <button onClick={save} disabled={upsert.isPending}
+              <button onClick={save} disabled={upsert.isLoading}
                 className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
                 style={{ background: `linear-gradient(135deg, ${GOLD}, #d4a039)` }}>
-                {upsert.isPending ? "Salvando…" : "Salvar"}
+                {upsert.isLoading ? "Salvando…" : "Salvar"}
               </button>
             </div>
           </div>
@@ -114,7 +117,7 @@ export default function FaqAdmin() {
             <p className="text-sm text-gray-600 mt-2">Esta ação não pode ser desfeita.</p>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium">Cancelar</button>
-              <button onClick={() => del.mutate({ id: confirmDelete })} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium">Excluir</button>
+              <button onClick={() => del.mutateAsync(confirmDelete!).then(() => { toast.success("Excluído!"); refetch(); setConfirmDelete(null); }).catch(e => toast.error(e.message))} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium">Excluir</button>
             </div>
           </div>
         </div>

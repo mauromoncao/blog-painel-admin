@@ -1,40 +1,36 @@
 import { useState, useRef } from "react";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { toast } from "sonner";
 import { Upload, Search, Copy, Trash2, X, Image as ImageIcon } from "lucide-react";
 
 const GOLD = "#E8B84B";
 
 export default function MediaLibrary() {
-  const [search, setSearch]   = useState("");
-  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
+  const [search, setSearch]     = useState("");
+  const [preview, setPreview]   = useState<{ url: string; name: string } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { data: files = [], isLoading, refetch } = trpc.media.list.useQuery();
-  const uploadMutation = trpc.media.upload.useMutation({
-    onSuccess: () => { toast.success("Imagem enviada!"); refetch(); },
-    onError: e => toast.error(e.message),
-  });
-  const deleteMutation = trpc.media.delete.useMutation({
-    onSuccess: () => { toast.success("Imagem excluída"); refetch(); setConfirmDelete(null); },
-    onError: e => toast.error(e.message),
-  });
+  const { data: files = [], isLoading, refetch } = useQuery(() => api.media.list(), []);
+  const deleteMutation = useMutation((id: number) => api.media.delete(id));
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList) return;
     for (const file of Array.from(fileList)) {
       if (!file.type.startsWith("image/")) { toast.error(`${file.name} não é uma imagem`); continue; }
       if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} excede 10MB`); continue; }
-
-      const data = new FormData();
-      data.append("file", file);
       try {
-        const res = await fetch("/api/upload", { method: "POST", body: data, credentials: "include" });
-        if (!res.ok) throw new Error("Upload falhou");
-        const json = await res.json();
-        await uploadMutation.mutateAsync(json);
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await api.upload({ name: file.name, type: file.type, size: file.size, data: base64 });
+        toast.success(`${file.name} enviado!`);
+        refetch();
       } catch (e: any) {
         toast.error(e.message ?? "Erro no upload");
       }
@@ -46,7 +42,7 @@ export default function MediaLibrary() {
   );
 
   const copyUrl = (url: string) => {
-    navigator.clipboard.writeText(window.location.origin + url);
+    navigator.clipboard.writeText(url);
     toast.success("URL copiada!");
   };
 
@@ -153,7 +149,12 @@ export default function MediaLibrary() {
             <div className="flex gap-3 mt-6">
               <button onClick={() => setConfirmDelete(null)}
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium">Cancelar</button>
-              <button onClick={() => deleteMutation.mutate({ id: confirmDelete })}
+              <button
+                onClick={() => {
+                  deleteMutation.mutateAsync(confirmDelete!)
+                    .then(() => { toast.success("Imagem excluída"); refetch(); setConfirmDelete(null); })
+                    .catch(e => toast.error(e.message));
+                }}
                 className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium">Excluir</button>
             </div>
           </div>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, Globe, Phone, MapPin, BarChart2, Instagram, Facebook, Linkedin } from "lucide-react";
+import { Globe, Phone, MapPin, BarChart2, Instagram, Facebook, Linkedin } from "lucide-react";
 
 const GOLD = "#E8B84B";
 
@@ -14,19 +15,16 @@ const TABS = [
 ];
 
 export default function Settings() {
-  const [tab, setTab] = useState("contact");
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [tab, setTab]         = useState("contact");
+  const [values, setValues]   = useState<Record<string, string>>({});
   const [saving, setSaving]   = useState(false);
 
-  const { data: settings = [] } = trpc.settings.list.useQuery();
-  const upsertMany = trpc.settings.upsertMany.useMutation({
-    onSuccess: () => toast.success("Configurações salvas!"),
-    onError: e => toast.error(e.message),
-  });
+  const { data: settings = [] } = useQuery(() => api.settings.list(), []);
+  const upsertMany = useMutation((items: { key: string; value: string }[]) => api.settings.upsertMany(items));
 
   useEffect(() => {
     const map: Record<string, string> = {};
-    settings.forEach(s => { map[s.settingKey] = s.settingValue ?? ""; });
+    settings.forEach((s: any) => { map[s.settingKey] = s.settingValue ?? ""; });
     setValues(map);
   }, [settings]);
 
@@ -38,7 +36,12 @@ export default function Settings() {
     try {
       const items = Object.entries(values).map(([key, value]) => ({ key, value }));
       await upsertMany.mutateAsync(items);
-    } finally { setSaving(false); }
+      toast.success("Configurações salvas!");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -61,7 +64,11 @@ export default function Settings() {
           {TABS.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => setTab(id)}
               className="flex items-center gap-2 px-5 py-3.5 text-sm font-medium whitespace-nowrap border-b-2 transition"
-              style={{ borderColor: tab === id ? GOLD : "transparent", color: tab === id ? GOLD : "#6B7280", background: tab === id ? "#FEFCE8" : "transparent" }}>
+              style={{
+                borderColor: tab === id ? GOLD : "transparent",
+                color:       tab === id ? GOLD : "#6B7280",
+                background:  tab === id ? "#FEFCE8" : "transparent",
+              }}>
               <Icon size={15} /> {label}
             </button>
           ))}
@@ -71,10 +78,10 @@ export default function Settings() {
           {/* ── CONTACT ── */}
           {tab === "contact" && (
             <>
-              <Field label="Telefone / WhatsApp" k="phone" get={get} set={set} placeholder="(11) 99999-9999" />
-              <Field label="E-mail de contato"   k="email" get={get} set={set} placeholder="contato@escritorio.adv.br" />
-              <Field label="Horário de atendimento" k="business_hours" get={get} set={set} placeholder="Seg–Sex 9h–18h" />
-              <Field label="Número do WhatsApp (com DDI)" k="whatsapp_number" get={get} set={set} placeholder="5511999999999" />
+              <Field label="Telefone / WhatsApp"           k="phone"            get={get} set={set} placeholder="(11) 99999-9999" />
+              <Field label="E-mail de contato"             k="email"            get={get} set={set} placeholder="contato@escritorio.adv.br" />
+              <Field label="Horário de atendimento"        k="business_hours"   get={get} set={set} placeholder="Seg–Sex 9h–18h" />
+              <Field label="Número do WhatsApp (com DDI)"  k="whatsapp_number"  get={get} set={set} placeholder="5511999999999" />
             </>
           )}
 
@@ -91,33 +98,33 @@ export default function Settings() {
           {/* ── ADDRESS ── */}
           {tab === "address" && (
             <>
-              <Field label="Logradouro"  k="address_street"  get={get} set={set} placeholder="Rua Dr. João Pessoa, 123 – Sala 45" />
-              <Field label="Bairro"      k="address_district" get={get} set={set} placeholder="Centro" />
-              <Field label="Cidade"      k="address_city"    get={get} set={set} placeholder="São Paulo" />
-              <Field label="Estado"      k="address_state"   get={get} set={set} placeholder="SP" />
-              <Field label="CEP"         k="address_zip"     get={get} set={set} placeholder="01310-100" />
-              <Field label="URL do Mapa (Google Maps embed)" k="map_url" get={get} set={set} placeholder="https://www.google.com/maps/embed?…" />
+              <Field label="Logradouro"                        k="address_street"   get={get} set={set} placeholder="Rua Dr. João Pessoa, 123 – Sala 45" />
+              <Field label="Bairro"                            k="address_district" get={get} set={set} placeholder="Centro" />
+              <Field label="Cidade"                            k="address_city"     get={get} set={set} placeholder="São Paulo" />
+              <Field label="Estado"                            k="address_state"    get={get} set={set} placeholder="SP" />
+              <Field label="CEP"                               k="address_zip"      get={get} set={set} placeholder="01310-100" />
+              <Field label="URL do Mapa (Google Maps embed)"   k="map_url"          get={get} set={set} placeholder="https://www.google.com/maps/embed?…" />
             </>
           )}
 
           {/* ── TRACKING ── */}
           {tab === "tracking" && (
             <>
-              <Field label="Google Analytics (G-XXXXXX)" k="ga_id" get={get} set={set} placeholder="G-XXXXXXXXXX" />
-              <Field label="Meta Pixel ID"                k="meta_pixel_id" get={get} set={set} placeholder="1234567890" />
-              <Field label="Google Tag Manager (GTM-XXX)" k="gtm_id" get={get} set={set} placeholder="GTM-XXXXXXX" />
+              <Field label="Google Analytics (G-XXXXXX)"  k="ga_id"         get={get} set={set} placeholder="G-XXXXXXXXXX" />
+              <Field label="Meta Pixel ID"                 k="meta_pixel_id" get={get} set={set} placeholder="1234567890" />
+              <Field label="Google Tag Manager (GTM-XXX)"  k="gtm_id"        get={get} set={set} placeholder="GTM-XXXXXXX" />
             </>
           )}
 
           {/* ── SEO ── */}
           {tab === "seo" && (
             <>
-              <Field label="Nome do site (para SEO)"  k="site_name"    get={get} set={set} placeholder="Mauro Monção Advogados Associados" />
-              <Field label="Meta título padrão"       k="meta_title"   get={get} set={set} placeholder="Mauro Monção Advogados | Direito Tributário" />
+              <Field label="Nome do site (para SEO)"  k="site_name"        get={get} set={set} placeholder="Mauro Monção Advogados Associados" />
+              <Field label="Meta título padrão"       k="meta_title"       get={get} set={set} placeholder="Mauro Monção Advogados | Direito Tributário" />
               <TextArea label="Meta descrição padrão" k="meta_description" get={get} set={set} placeholder="Escritório especializado em…" />
-              <Field label="URL do logo"              k="logo_url"     get={get} set={set} placeholder="https://…/logo.svg" />
-              <Field label="URL do favicon"           k="favicon_url"  get={get} set={set} placeholder="https://…/favicon.ico" />
-              <Field label="OG Image padrão"          k="og_image"     get={get} set={set} placeholder="https://…/og-default.jpg" />
+              <Field label="URL do logo"              k="logo_url"         get={get} set={set} placeholder="https://…/logo.svg" />
+              <Field label="URL do favicon"           k="favicon_url"      get={get} set={set} placeholder="https://…/favicon.ico" />
+              <Field label="OG Image padrão"          k="og_image"         get={get} set={set} placeholder="https://…/og-default.jpg" />
             </>
           )}
 
@@ -134,11 +141,16 @@ export default function Settings() {
   );
 }
 
-function Field({ label, k, get, set, placeholder, icon }: { label: string; k: string; get: (k: string) => string; set: (k: string, v: string) => void; placeholder?: string; icon?: React.ReactNode }) {
+function Field({
+  label, k, get, set, placeholder, icon,
+}: {
+  label: string; k: string; get: (k: string) => string;
+  set: (k: string, v: string) => void; placeholder?: string; icon?: React.ReactNode;
+}) {
   return (
     <div>
       <label className="block text-sm font-semibold mb-1.5 text-gray-700">{label}</label>
-      <div className={`flex items-center rounded-xl border-2 border-gray-200 focus-within:border-[#E8B84B] overflow-hidden ${icon ? "" : ""}`}>
+      <div className="flex items-center rounded-xl border-2 border-gray-200 focus-within:border-[#E8B84B] overflow-hidden">
         {icon && <span className="px-3 text-gray-400">{icon}</span>}
         <input value={get(k)} onChange={e => set(k, e.target.value)} placeholder={placeholder}
           className="flex-1 px-4 py-3 text-sm focus:outline-none text-gray-800 bg-white" />
@@ -147,7 +159,12 @@ function Field({ label, k, get, set, placeholder, icon }: { label: string; k: st
   );
 }
 
-function TextArea({ label, k, get, set, placeholder }: { label: string; k: string; get: (k: string) => string; set: (k: string, v: string) => void; placeholder?: string }) {
+function TextArea({
+  label, k, get, set, placeholder,
+}: {
+  label: string; k: string; get: (k: string) => string;
+  set: (k: string, v: string) => void; placeholder?: string;
+}) {
   return (
     <div>
       <label className="block text-sm font-semibold mb-1.5 text-gray-700">{label}</label>

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { slugify } from "../lib/utils";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Tag, X, Check, Upload } from "lucide-react";
+import { Plus, Pencil, Trash2, Tag, X, Upload } from "lucide-react";
 
 const GOLD = "#E8B84B";
 const NAVY = "#19385C";
@@ -27,24 +28,28 @@ interface CatForm { id?: number; name: string; slug: string; description: string
 const EMPTY_CAT: CatForm = { name: "", slug: "", description: "", sortOrder: 0 };
 
 export default function Categories() {
-  const [editing, setEditing] = useState<CatForm | null>(null);
+  const [editing, setEditing]           = useState<CatForm | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
-  const { data: cats = [], isLoading, refetch } = trpc.categories.list.useQuery();
-  const upsert = trpc.categories.upsert.useMutation({ onSuccess: () => { toast.success("Categoria salva!"); setEditing(null); refetch(); }, onError: e => toast.error(e.message) });
-  const del    = trpc.categories.delete.useMutation({ onSuccess: () => { toast.success("Excluída!"); refetch(); }, onError: e => toast.error(e.message) });
+  const { data: cats = [], isLoading, refetch } = useQuery(() => api.categories.list(), []);
+  const upsert = useMutation((d: any) => api.categories.upsert(d));
+  const del    = useMutation((id: number) => api.categories.delete(id));
 
   const save = () => {
     if (!editing) return;
     if (!editing.name.trim()) { toast.error("Nome é obrigatório"); return; }
     if (!editing.slug.trim()) { toast.error("Slug é obrigatório"); return; }
-    upsert.mutate({ id: editing.id, name: editing.name, slug: editing.slug, description: editing.description, sortOrder: editing.sortOrder });
+    upsert.mutateAsync({ id: editing.id, name: editing.name, slug: editing.slug, description: editing.description, sortOrder: editing.sortOrder })
+      .then(() => { toast.success("Categoria salva!"); setEditing(null); refetch(); })
+      .catch(e => toast.error(e.message));
   };
 
   const importDefaults = async () => {
     const existing = new Set(cats.map(c => c.slug));
     const toImport = LEGAL_CATEGORIES.filter(c => !existing.has(c.slug));
-    for (const cat of toImport) await upsert.mutateAsync({ name: cat.name, slug: cat.slug });
+    for (const cat of toImport) {
+      await upsert.mutateAsync({ name: cat.name, slug: cat.slug }).catch(() => {});
+    }
     toast.success(`${toImport.length} categorias importadas`);
     refetch();
   };
@@ -75,7 +80,9 @@ export default function Categories() {
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         {isLoading ? (
-          <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: GOLD }} /></div>
+          <div className="flex justify-center py-16">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: GOLD }} />
+          </div>
         ) : cats.length === 0 ? (
           <div className="text-center py-16">
             <Tag size={40} className="mx-auto mb-3 text-gray-300" />
@@ -113,7 +120,8 @@ export default function Categories() {
                   <td className="px-4 py-3.5 text-center text-gray-500">{c.sortOrder}</td>
                   <td className="px-6 py-3.5">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => setEditing({ id: c.id, name: c.name, slug: c.slug, description: c.description ?? "", sortOrder: c.sortOrder })}
+                      <button
+                        onClick={() => setEditing({ id: c.id, name: c.name, slug: c.slug, description: c.description ?? "", sortOrder: c.sortOrder })}
                         className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50">
                         <Pencil size={13} />
                       </button>
@@ -167,10 +175,10 @@ export default function Categories() {
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">
                 Cancelar
               </button>
-              <button onClick={save} disabled={upsert.isPending}
+              <button onClick={save} disabled={upsert.isLoading}
                 className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
                 style={{ background: `linear-gradient(135deg, ${GOLD}, #d4a039)` }}>
-                {upsert.isPending ? "Salvando…" : "Salvar"}
+                {upsert.isLoading ? "Salvando…" : "Salvar"}
               </button>
             </div>
           </div>
@@ -186,7 +194,13 @@ export default function Categories() {
             <div className="flex gap-3 mt-6">
               <button onClick={() => setConfirmDelete(null)}
                 className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium">Cancelar</button>
-              <button onClick={() => { del.mutate({ id: confirmDelete }); setConfirmDelete(null); }}
+              <button
+                onClick={() => {
+                  del.mutateAsync(confirmDelete!)
+                    .then(() => { toast.success("Excluída!"); refetch(); })
+                    .catch(e => toast.error(e.message));
+                  setConfirmDelete(null);
+                }}
                 className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium">Excluir</button>
             </div>
           </div>

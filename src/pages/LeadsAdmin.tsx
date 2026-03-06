@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { trpc } from "../lib/trpc";
+import { api } from "../lib/api";
+import { useQuery, useMutation } from "../lib/useApi";
 import { formatDate } from "../lib/utils";
 import { toast } from "sonner";
 import { Users, Trash2, Mail, Phone, MessageSquare } from "lucide-react";
@@ -20,9 +21,9 @@ export default function LeadsAdmin() {
   const [detail, setDetail]         = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
-  const { data: leads = [], isLoading, refetch } = trpc.leads.list.useQuery();
-  const updateStatus = trpc.leads.updateStatus.useMutation({ onSuccess: () => { toast.success("Status atualizado"); refetch(); }, onError: e => toast.error(e.message) });
-  const del          = trpc.leads.delete.useMutation({ onSuccess: () => { toast.success("Lead excluído"); refetch(); setConfirmDelete(null); }, onError: e => toast.error(e.message) });
+  const { data: leads = [], isLoading, refetch } = useQuery(() => api.leads.list(), []);
+  const updateStatus = useMutation(({ id, status }: { id: number; status: string }) => api.leads.updateStatus(id, status));
+  const del          = useMutation((id: number) => api.leads.delete(id));
 
   const filtered = leads.filter(l => {
     const matchSearch = !search || l.name.toLowerCase().includes(search.toLowerCase()) || l.email?.toLowerCase().includes(search.toLowerCase()) || l.phone?.includes(search);
@@ -100,7 +101,7 @@ export default function LeadsAdmin() {
                       <td className="px-4 py-3.5 hidden lg:table-cell text-gray-400 text-xs">{formatDate(l.createdAt)}</td>
                       <td className="px-4 py-3.5 text-center">
                         <select value={l.status}
-                          onChange={e => updateStatus.mutate({ id: l.id, status: e.target.value as any })}
+                          onChange={e => updateStatus.mutateAsync({ id: l.id, status: e.target.value }).then(() => { toast.success("Status atualizado"); refetch(); }).catch(e => toast.error(e.message))}
                           className="text-xs font-medium px-2.5 py-1.5 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#E8B84B]"
                           style={{ background: s.bg, color: s.color }}>
                           {Object.entries(STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -160,7 +161,7 @@ export default function LeadsAdmin() {
             <p className="text-sm text-gray-600 mt-2">Esta ação não pode ser desfeita.</p>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium">Cancelar</button>
-              <button onClick={() => del.mutate({ id: confirmDelete })} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium">Excluir</button>
+              <button onClick={() => del.mutateAsync(confirmDelete!).then(() => { toast.success("Lead excluído"); refetch(); setConfirmDelete(null); }).catch(e => toast.error(e.message))} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium">Excluir</button>
             </div>
           </div>
         </div>

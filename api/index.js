@@ -74,6 +74,23 @@ async function ensureTables() {
   tablesEnsured = true;
 }
 
+// ── Converter resultado postgres.js para array puro ───────────
+function toArr(result) {
+  if (!result) return [];
+  // Forçar serialização/deserialização para garantir array JS puro
+  try {
+    const serialized = JSON.stringify(result);
+    const parsed = JSON.parse(serialized);
+    if (Array.isArray(parsed)) return parsed;
+    // Se por algum motivo virou objeto, tentar converter
+    if (parsed && typeof parsed === "object") {
+      const keys = Object.keys(parsed).filter(k => !isNaN(Number(k)));
+      if (keys.length > 0) return keys.map(k => parsed[k]);
+    }
+  } catch {}
+  return [];
+}
+
 // ── Executar uma única query tRPC ──────────────────────────────
 async function execEndpoint(endpoint, input, sql) {
   if (endpoint === "dashboard.stats") {
@@ -91,10 +108,10 @@ async function execEndpoint(endpoint, input, sql) {
     ]);
     return { totalPosts: Number(p[0].c), published: Number(pub[0].c), drafts: Number(dr[0].c), scheduled: Number(sc[0].c), archived: Number(ar[0].c), totalCategories: Number(cat[0].c), totalMedia: Number(med[0].c), totalLeads: Number(lea[0].c), newLeads: Number(nlea[0].c), totalFaq: Number(faq[0].c) };
   }
-  if (endpoint === "dashboard.recentPosts") return sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC LIMIT 5`;
-  if (endpoint === "dashboard.recentLeads") return sql`SELECT * FROM leads ORDER BY "createdAt" DESC LIMIT 5`;
+  if (endpoint === "dashboard.recentPosts") return toArr(await sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC LIMIT 5`);
+  if (endpoint === "dashboard.recentLeads") return toArr(await sql`SELECT * FROM leads ORDER BY "createdAt" DESC LIMIT 5`);
 
-  if (endpoint === "blog.list") return sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC`;
+  if (endpoint === "blog.list") return toArr(await sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC`);
   if (endpoint === "blog.getById") {
     const id = Number(input?.id);
     if (!id) return null;
@@ -118,7 +135,7 @@ async function execEndpoint(endpoint, input, sql) {
     return { ok: true };
   }
 
-  if (endpoint === "categories.list") return sql`SELECT * FROM blog_categories ORDER BY "sortOrder" ASC, name ASC`;
+  if (endpoint === "categories.list") return toArr(await sql`SELECT * FROM blog_categories ORDER BY "sortOrder" ASC, name ASC`);
   if (endpoint === "categories.upsert") {
     const d = input;
     if (d.id) {
@@ -133,7 +150,7 @@ async function execEndpoint(endpoint, input, sql) {
     return { ok: true };
   }
 
-  if (endpoint === "faq.list") return sql`SELECT * FROM faq_items ORDER BY "sortOrder" ASC, id ASC`;
+  if (endpoint === "faq.list") return toArr(await sql`SELECT * FROM faq_items ORDER BY "sortOrder" ASC, id ASC`);
   if (endpoint === "faq.upsert") {
     const d = input;
     if (d.id) {
@@ -148,7 +165,7 @@ async function execEndpoint(endpoint, input, sql) {
     return { ok: true };
   }
 
-  if (endpoint === "leads.list") return sql`SELECT * FROM leads ORDER BY "createdAt" DESC`;
+  if (endpoint === "leads.list") return toArr(await sql`SELECT * FROM leads ORDER BY "createdAt" DESC`);
   if (endpoint === "leads.updateStatus") {
     const rows = await sql`UPDATE leads SET status=${input.status},"updatedAt"=NOW() WHERE id=${Number(input?.id)} RETURNING *`;
     return rows[0];
@@ -158,7 +175,7 @@ async function execEndpoint(endpoint, input, sql) {
     return { ok: true };
   }
 
-  if (endpoint === "media.list") return sql`SELECT * FROM media_files ORDER BY "createdAt" DESC`;
+  if (endpoint === "media.list") return toArr(await sql`SELECT * FROM media_files ORDER BY "createdAt" DESC`);
   if (endpoint === "media.upload") {
     const d = input;
     const rows = await sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt) VALUES (${d.filename},${d.originalName},${d.mimeType},${d.size},${d.url},${d.fileKey},${d.alt??null}) RETURNING *`;
@@ -170,7 +187,7 @@ async function execEndpoint(endpoint, input, sql) {
     return rows[0] ?? null;
   }
 
-  if (endpoint === "settings.list") return sql`SELECT * FROM site_settings`;
+  if (endpoint === "settings.list") return toArr(await sql`SELECT * FROM site_settings`);
   if (endpoint === "settings.upsert") {
     await sql`INSERT INTO site_settings ("settingKey","settingValue","updatedAt") VALUES (${input.key},${input.value},NOW()) ON CONFLICT ("settingKey") DO UPDATE SET "settingValue"=EXCLUDED."settingValue","updatedAt"=NOW()`;
     return { ok: true };
