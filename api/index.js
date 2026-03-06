@@ -1,4 +1,4 @@
-// api/index.js — Painel Admin Mauro Monção — CRUD completo com Neon PostgreSQL
+// api/index.js — Painel Admin Mauro Monção — CRUD completo com PostgreSQL VPS
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import postgres from "postgres";
@@ -9,47 +9,27 @@ const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
 let _sql = null;
 function isDbAvailable() {
   const dbUrl = process.env.DATABASE_URL ?? "";
-  // Rejeita apenas URLs claramente inválidas ou placeholder de exemplo
-  if (!dbUrl || dbUrl === "postgresql://usuario:senha@host:5432/nome_do_banco") {
-    return false;
-  }
+  if (!dbUrl || dbUrl === "postgresql://usuario:senha@host:5432/nome_do_banco") return false;
   return true;
 }
 function getDb() {
   if (_sql) return _sql;
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL não configurada");
-  _sql = postgres(dbUrl, { max: 3, idle_timeout: 5, connect_timeout: 5, max_lifetime: 60, connection: { application_name: "admin-panel" } });
+  _sql = postgres(dbUrl, { max: 3, idle_timeout: 5, connect_timeout: 5, max_lifetime: 60 });
   return _sql;
 }
 
-// ── Usuários fixos (fallback quando banco falha) ───────────────
+// ── Usuários fixos (fallback) ──────────────────────────────────
 const FALLBACK_USERS = [
-  {
-    id: 1,
-    email: "mauromoncaoestudos@gmail.com",
-    name: "Mauro Monção",
-    role: "admin",
-    isActive: true,
-    passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
-  },
-  {
-    id: 2,
-    email: "mauromoncaoadv.escritorio@gmail.com",
-    name: "Escritório Mauro Monção",
-    role: "admin",
-    isActive: true,
-    passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
-  },
+  { id: 1, email: "mauromoncaoestudos@gmail.com",        name: "Mauro Monção",              role: "admin", isActive: true, passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "" },
+  { id: 2, email: "mauromoncaoadv.escritorio@gmail.com", name: "Escritório Mauro Monção",    role: "admin", isActive: true, passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "" },
 ];
 
-// ── Helpers de auth ────────────────────────────────────────────
+// ── Auth helpers ───────────────────────────────────────────────
 function setAuthCookie(res, token) {
-  res.setHeader("Set-Cookie",
-    `admin_token=${token}; HttpOnly; Path=/; Max-Age=${7 * 86400}; SameSite=Lax; Secure`
-  );
+  res.setHeader("Set-Cookie", `admin_token=${token}; HttpOnly; Path=/; Max-Age=${7 * 86400}; SameSite=Lax; Secure`);
 }
-
 function getTokenFromReq(req) {
   const auth = req.headers.authorization ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -57,16 +37,13 @@ function getTokenFromReq(req) {
   const m = cookie.match(/admin_token=([^;]+)/);
   return bearer ?? m?.[1] ?? null;
 }
-
 async function getUserFromToken(req) {
   const token = getTokenFromReq(req);
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    // Primeiro tenta o fallback local — rápido e sem depender do banco
     const fallback = FALLBACK_USERS.find(u => u.id === payload.id);
     if (fallback) return fallback;
-    // Se não achou no fallback, tenta o banco (só se disponível)
     if (isDbAvailable()) {
       try {
         const sql = getDb();
@@ -76,80 +53,137 @@ async function getUserFromToken(req) {
       } catch { /* banco indisponível */ }
     }
     return null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// ── Helpers de resposta tRPC ───────────────────────────────────
-function okResp(res, data, isBatch) {
-  const wrap = { result: { data: { json: data } } };
-  return res.status(200).json(isBatch ? [wrap] : wrap);
-}
-function errResp(res, msg, isBatch) {
-  const wrap = { error: { json: { message: msg, code: "INTERNAL_SERVER_ERROR" } } };
-  return res.status(200).json(isBatch ? [wrap] : wrap);
-}
-function isBatch(url, body) {
-  return url.includes("batch=1") || (body && body["0"] !== undefined);
-}
-function parseInput(body) {
-  if (!body) return {};
-  const inner = body?.["0"] ?? body;
-  return inner?.json ?? inner?.input ?? inner ?? {};
-}
+// ── withTimeout ────────────────────────────────────────────────
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("DB timeout " + ms + "ms")), ms))]);
 
-// ── Criar tabelas se não existirem ────────────────────────────
+// ── Criar tabelas ──────────────────────────────────────────────
 let tablesEnsured = false;
 async function ensureTables() {
   if (tablesEnsured) return;
   const sql = getDb();
-  await sql`CREATE TABLE IF NOT EXISTS admin_users (
-    id SERIAL PRIMARY KEY, email VARCHAR(320) NOT NULL UNIQUE,
-    "passwordHash" VARCHAR(255), name VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL DEFAULT 'admin',
-    "isActive" BOOLEAN NOT NULL DEFAULT TRUE,
-    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "lastSignedIn" TIMESTAMPTZ)`;
-  await sql`CREATE TABLE IF NOT EXISTS blog_posts (
-    id SERIAL PRIMARY KEY, slug VARCHAR(255) NOT NULL UNIQUE,
-    title VARCHAR(255) NOT NULL, subtitle VARCHAR(500), excerpt TEXT, content TEXT,
-    "coverImage" VARCHAR(500), "coverImageAlt" VARCHAR(255), "videoUrl" VARCHAR(500),
-    "authorName" VARCHAR(255), category VARCHAR(128), tags VARCHAR(500),
-    "metaTitle" VARCHAR(255), "metaDescription" TEXT, "metaKeywords" VARCHAR(500),
-    "ogImage" VARCHAR(500), "ctaText" VARCHAR(255), "ctaUrl" VARCHAR(500),
-    status VARCHAR(50) NOT NULL DEFAULT 'draft',
-    "isFeatured" BOOLEAN NOT NULL DEFAULT FALSE,
-    "isPublished" BOOLEAN NOT NULL DEFAULT FALSE,
-    "publishedAt" TIMESTAMPTZ, "scheduledAt" TIMESTAMPTZ,
-    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS blog_categories (
-    id SERIAL PRIMARY KEY, slug VARCHAR(255) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL, description TEXT,
-    "sortOrder" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS faq_items (
-    id SERIAL PRIMARY KEY, question TEXT NOT NULL, answer TEXT NOT NULL,
-    category VARCHAR(128), "isPublished" BOOLEAN NOT NULL DEFAULT TRUE,
-    "sortOrder" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS leads (
-    id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL,
-    email VARCHAR(320), phone VARCHAR(20), message TEXT, source VARCHAR(128),
-    status VARCHAR(50) NOT NULL DEFAULT 'new',
-    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS media_files (
-    id SERIAL PRIMARY KEY, filename VARCHAR(255) NOT NULL,
-    "originalName" VARCHAR(255) NOT NULL, "mimeType" VARCHAR(128) NOT NULL,
-    size INTEGER NOT NULL, url TEXT NOT NULL, "fileKey" VARCHAR(500) NOT NULL,
-    alt VARCHAR(255), "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS site_settings (
-    id SERIAL PRIMARY KEY, "settingKey" VARCHAR(128) NOT NULL UNIQUE,
-    "settingValue" TEXT, "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS admin_users (id SERIAL PRIMARY KEY, email VARCHAR(320) NOT NULL UNIQUE, "passwordHash" VARCHAR(255), name VARCHAR(255) NOT NULL, role VARCHAR(50) NOT NULL DEFAULT 'admin', "isActive" BOOLEAN NOT NULL DEFAULT TRUE, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "lastSignedIn" TIMESTAMPTZ)`;
+  await sql`CREATE TABLE IF NOT EXISTS blog_posts (id SERIAL PRIMARY KEY, slug VARCHAR(255) NOT NULL UNIQUE, title VARCHAR(255) NOT NULL, subtitle VARCHAR(500), excerpt TEXT, content TEXT, "coverImage" TEXT, "coverImageAlt" VARCHAR(255), "videoUrl" VARCHAR(500), "authorName" VARCHAR(255), category VARCHAR(128), tags VARCHAR(500), "metaTitle" VARCHAR(255), "metaDescription" TEXT, "metaKeywords" VARCHAR(500), "ogImage" TEXT, "ctaText" VARCHAR(255), "ctaUrl" VARCHAR(500), status VARCHAR(50) NOT NULL DEFAULT 'draft', "isFeatured" BOOLEAN NOT NULL DEFAULT FALSE, "isPublished" BOOLEAN NOT NULL DEFAULT FALSE, "publishedAt" TIMESTAMPTZ, "scheduledAt" TIMESTAMPTZ, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS blog_categories (id SERIAL PRIMARY KEY, slug VARCHAR(255) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, description TEXT, "sortOrder" INTEGER NOT NULL DEFAULT 0, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS faq_items (id SERIAL PRIMARY KEY, question TEXT NOT NULL, answer TEXT NOT NULL, category VARCHAR(128), "isPublished" BOOLEAN NOT NULL DEFAULT TRUE, "sortOrder" INTEGER NOT NULL DEFAULT 0, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS leads (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(320), phone VARCHAR(20), message TEXT, source VARCHAR(128), status VARCHAR(50) NOT NULL DEFAULT 'new', "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS media_files (id SERIAL PRIMARY KEY, filename VARCHAR(255) NOT NULL, "originalName" VARCHAR(255) NOT NULL, "mimeType" VARCHAR(128) NOT NULL, size INTEGER NOT NULL, url TEXT NOT NULL, "fileKey" VARCHAR(500) NOT NULL, alt VARCHAR(255), "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS site_settings (id SERIAL PRIMARY KEY, "settingKey" VARCHAR(128) NOT NULL UNIQUE, "settingValue" TEXT, "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
   tablesEnsured = true;
+}
+
+// ── Executar uma única query tRPC ──────────────────────────────
+async function execEndpoint(endpoint, input, sql) {
+  if (endpoint === "dashboard.stats") {
+    const [p, pub, dr, sc, ar, cat, med, lea, nlea, faq] = await Promise.all([
+      sql`SELECT COUNT(*) c FROM blog_posts`,
+      sql`SELECT COUNT(*) c FROM blog_posts WHERE status='published'`,
+      sql`SELECT COUNT(*) c FROM blog_posts WHERE status='draft'`,
+      sql`SELECT COUNT(*) c FROM blog_posts WHERE status='scheduled'`,
+      sql`SELECT COUNT(*) c FROM blog_posts WHERE status='archived'`,
+      sql`SELECT COUNT(*) c FROM blog_categories`,
+      sql`SELECT COUNT(*) c FROM media_files`,
+      sql`SELECT COUNT(*) c FROM leads`,
+      sql`SELECT COUNT(*) c FROM leads WHERE status='new'`,
+      sql`SELECT COUNT(*) c FROM faq_items`,
+    ]);
+    return { totalPosts: Number(p[0].c), published: Number(pub[0].c), drafts: Number(dr[0].c), scheduled: Number(sc[0].c), archived: Number(ar[0].c), totalCategories: Number(cat[0].c), totalMedia: Number(med[0].c), totalLeads: Number(lea[0].c), newLeads: Number(nlea[0].c), totalFaq: Number(faq[0].c) };
+  }
+  if (endpoint === "dashboard.recentPosts") return sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC LIMIT 5`;
+  if (endpoint === "dashboard.recentLeads") return sql`SELECT * FROM leads ORDER BY "createdAt" DESC LIMIT 5`;
+
+  if (endpoint === "blog.list") return sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC`;
+  if (endpoint === "blog.getById") {
+    const id = Number(input?.id);
+    if (!id) return null;
+    const rows = await sql`SELECT * FROM blog_posts WHERE id=${id} LIMIT 1`;
+    return rows[0] ?? null;
+  }
+  if (endpoint === "blog.upsert") {
+    const d = input;
+    const isPub = d.status === "published";
+    const pubAt = isPub ? (d.publishedAt ? new Date(d.publishedAt) : new Date()) : (d.publishedAt ? new Date(d.publishedAt) : null);
+    const schAt = d.scheduledAt ? new Date(d.scheduledAt) : null;
+    if (d.id) {
+      const rows = await sql`UPDATE blog_posts SET slug=${d.slug},title=${d.title},subtitle=${d.subtitle??null},excerpt=${d.excerpt??null},content=${d.content??null},"coverImage"=${d.coverImage??null},"coverImageAlt"=${d.coverImageAlt??null},"videoUrl"=${d.videoUrl??null},"authorName"=${d.authorName??null},category=${d.category??null},tags=${d.tags??null},"metaTitle"=${d.metaTitle??null},"metaDescription"=${d.metaDescription??null},"metaKeywords"=${d.metaKeywords??null},"ogImage"=${d.ogImage??null},"ctaText"=${d.ctaText??null},"ctaUrl"=${d.ctaUrl??null},status=${d.status??'draft'},"isFeatured"=${d.isFeatured??false},"isPublished"=${isPub},"publishedAt"=${pubAt},"scheduledAt"=${schAt},"updatedAt"=NOW() WHERE id=${d.id} RETURNING *`;
+      return rows[0];
+    }
+    const rows = await sql`INSERT INTO blog_posts (slug,title,subtitle,excerpt,content,"coverImage","coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt") VALUES (${d.slug},${d.title},${d.subtitle??null},${d.excerpt??null},${d.content??null},${d.coverImage??null},${d.coverImageAlt??null},${d.videoUrl??null},${d.authorName??null},${d.category??null},${d.tags??null},${d.metaTitle??null},${d.metaDescription??null},${d.metaKeywords??null},${d.ogImage??null},${d.ctaText??null},${d.ctaUrl??null},${d.status??'draft'},${d.isFeatured??false},${isPub},${pubAt},${schAt}) RETURNING *`;
+    return rows[0];
+  }
+  if (endpoint === "blog.delete") {
+    await sql`DELETE FROM blog_posts WHERE id=${Number(input?.id)}`;
+    return { ok: true };
+  }
+
+  if (endpoint === "categories.list") return sql`SELECT * FROM blog_categories ORDER BY "sortOrder" ASC, name ASC`;
+  if (endpoint === "categories.upsert") {
+    const d = input;
+    if (d.id) {
+      const rows = await sql`UPDATE blog_categories SET slug=${d.slug},name=${d.name},description=${d.description??null},"sortOrder"=${d.sortOrder??0} WHERE id=${d.id} RETURNING *`;
+      return rows[0];
+    }
+    const rows = await sql`INSERT INTO blog_categories (slug,name,description,"sortOrder") VALUES (${d.slug},${d.name},${d.description??null},${d.sortOrder??0}) RETURNING *`;
+    return rows[0];
+  }
+  if (endpoint === "categories.delete") {
+    await sql`DELETE FROM blog_categories WHERE id=${Number(input?.id)}`;
+    return { ok: true };
+  }
+
+  if (endpoint === "faq.list") return sql`SELECT * FROM faq_items ORDER BY "sortOrder" ASC, id ASC`;
+  if (endpoint === "faq.upsert") {
+    const d = input;
+    if (d.id) {
+      const rows = await sql`UPDATE faq_items SET question=${d.question},answer=${d.answer},category=${d.category??null},"isPublished"=${d.isPublished??true},"sortOrder"=${d.sortOrder??0},"updatedAt"=NOW() WHERE id=${d.id} RETURNING *`;
+      return rows[0];
+    }
+    const rows = await sql`INSERT INTO faq_items (question,answer,category,"isPublished","sortOrder") VALUES (${d.question},${d.answer},${d.category??null},${d.isPublished??true},${d.sortOrder??0}) RETURNING *`;
+    return rows[0];
+  }
+  if (endpoint === "faq.delete") {
+    await sql`DELETE FROM faq_items WHERE id=${Number(input?.id)}`;
+    return { ok: true };
+  }
+
+  if (endpoint === "leads.list") return sql`SELECT * FROM leads ORDER BY "createdAt" DESC`;
+  if (endpoint === "leads.updateStatus") {
+    const rows = await sql`UPDATE leads SET status=${input.status},"updatedAt"=NOW() WHERE id=${Number(input?.id)} RETURNING *`;
+    return rows[0];
+  }
+  if (endpoint === "leads.delete") {
+    await sql`DELETE FROM leads WHERE id=${Number(input?.id)}`;
+    return { ok: true };
+  }
+
+  if (endpoint === "media.list") return sql`SELECT * FROM media_files ORDER BY "createdAt" DESC`;
+  if (endpoint === "media.upload") {
+    const d = input;
+    const rows = await sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt) VALUES (${d.filename},${d.originalName},${d.mimeType},${d.size},${d.url},${d.fileKey},${d.alt??null}) RETURNING *`;
+    return rows[0];
+  }
+  if (endpoint === "media.delete") {
+    const rows = await sql`SELECT * FROM media_files WHERE id=${Number(input?.id)} LIMIT 1`;
+    await sql`DELETE FROM media_files WHERE id=${Number(input?.id)}`;
+    return rows[0] ?? null;
+  }
+
+  if (endpoint === "settings.list") return sql`SELECT * FROM site_settings`;
+  if (endpoint === "settings.upsert") {
+    await sql`INSERT INTO site_settings ("settingKey","settingValue","updatedAt") VALUES (${input.key},${input.value},NOW()) ON CONFLICT ("settingKey") DO UPDATE SET "settingValue"=EXCLUDED."settingValue","updatedAt"=NOW()`;
+    return { ok: true };
+  }
+  if (endpoint === "settings.upsertMany") {
+    const items = Array.isArray(input) ? input : [];
+    for (const item of items) {
+      await sql`INSERT INTO site_settings ("settingKey","settingValue","updatedAt") VALUES (${item.key},${item.value},NOW()) ON CONFLICT ("settingKey") DO UPDATE SET "settingValue"=EXCLUDED."settingValue","updatedAt"=NOW()`;
+    }
+    return { ok: true };
+  }
+
+  return null;
 }
 
 // ── Handler principal ──────────────────────────────────────────
@@ -162,8 +196,6 @@ export default async function handler(req, res) {
 
   const url = req.url ?? "";
   const rawBody = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body ?? {});
-  const batch = isBatch(url, rawBody);
-  const input = parseInput(rawBody);
 
   // ── /api/upload ───────────────────────────────────────────
   if (url.includes("/api/upload") && req.method === "POST") {
@@ -176,24 +208,15 @@ export default async function handler(req, res) {
       if (!type.startsWith("image/")) return res.status(400).json({ error: "Apenas imagens permitidas" });
       const dataUrl = b64.startsWith("data:") ? b64 : `data:${type};base64,${b64}`;
       const key = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-      // Monta registro em memória (funciona SEM banco)
       const record = { id: Date.now(), filename: key, originalName: name, mimeType: type, size: size ?? 0, url: dataUrl, fileKey: key, alt: name, createdAt: new Date().toISOString() };
-
-      // Só tenta salvar no banco se o DATABASE_URL for válido (não Supabase pausado)
       if (isDbAvailable()) {
         try {
-          const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("DB timeout")), ms))]);
           await withTimeout(ensureTables(), 4000);
           const sql = getDb();
-          const rows = await withTimeout(
-            sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt)
-              VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`,
-            4000
-          );
+          const rows = await withTimeout(sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt) VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`, 4000);
           Object.assign(record, rows[0]);
         } catch (dbErr) {
-          console.error("[Upload] DB indisponível, usando in-memory:", dbErr.message);
+          console.error("[Upload] DB:", dbErr.message);
         }
       }
       return res.status(200).json(record);
@@ -202,39 +225,44 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── auth.login ────────────────────────────────────────────
+  // ── auth.login (REST + tRPC) ───────────────────────────────
   if (url.includes("auth.login") || (url.includes("/api/auth/login") && !url.includes("trpc"))) {
     try {
-      const { email, password } = input;
-      if (!email || !password) return errResp(res, "Email e senha são obrigatórios", batch);
-
-      // 1. Tenta fallback local PRIMEIRO (rápido, sem banco)
+      const body = url.includes("/api/auth/login") && !url.includes("trpc") ? rawBody : (rawBody?.["0"]?.json ?? rawBody?.["0"] ?? rawBody);
+      const { email, password } = body ?? {};
+      if (!email || !password) {
+        const msg = "Email e senha são obrigatórios";
+        if (url.includes("/api/auth/login") && !url.includes("trpc")) return res.status(400).json({ error: msg });
+        return res.status(200).json([{ error: { json: { message: msg } } }]);
+      }
       let user = FALLBACK_USERS.find(u => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
-
-      // 2. Se não achou no fallback, tenta o banco (só se DATABASE_URL válido)
       if (!user && isDbAvailable()) {
         try {
-          const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
           await withTimeout(ensureTables(), 4000);
           const sql = getDb();
           const rows = await withTimeout(sql`SELECT * FROM admin_users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`, 4000);
           user = rows[0] ?? null;
-        } catch { /* banco fora do ar — continua sem ele */ }
+        } catch { /* banco fora do ar */ }
       }
-
-      if (!user || !user.passwordHash) return errResp(res, "Credenciais inválidas", batch);
+      if (!user || !user.passwordHash) {
+        const msg = "Credenciais inválidas";
+        if (url.includes("/api/auth/login") && !url.includes("trpc")) return res.status(401).json({ error: msg });
+        return res.status(200).json([{ error: { json: { message: msg } } }]);
+      }
       const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) return errResp(res, "Credenciais inválidas", batch);
-
+      if (!valid) {
+        const msg = "Credenciais inválidas";
+        if (url.includes("/api/auth/login") && !url.includes("trpc")) return res.status(401).json({ error: msg });
+        return res.status(200).json([{ error: { json: { message: msg } } }]);
+      }
       const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "7d" });
       setAuthCookie(res, token);
       try { const sql = getDb(); await sql`UPDATE admin_users SET "lastSignedIn"=NOW() WHERE id=${user.id}`; } catch {}
-
       const payload = { id: user.id, name: user.name, email: user.email, role: user.role, token };
       if (url.includes("/api/auth/login") && !url.includes("trpc")) return res.status(200).json(payload);
-      return okResp(res, payload, batch);
+      return res.status(200).json([{ result: { data: { json: payload } } }]);
     } catch (e) {
-      return errResp(res, "Erro interno: " + e.message, batch);
+      return res.status(500).json({ error: "Erro interno: " + e.message });
     }
   }
 
@@ -243,14 +271,14 @@ export default async function handler(req, res) {
     const u = await getUserFromToken(req);
     const data = u ? { id: u.id, name: u.name, email: u.email, role: u.role } : null;
     if (url.includes("/api/auth/me") && !url.includes("trpc")) return res.status(200).json(data);
-    return okResp(res, data, batch);
+    return res.status(200).json([{ result: { data: { json: data } } }]);
   }
 
   // ── auth.logout ───────────────────────────────────────────
   if (url.includes("auth.logout") || url.includes("/api/auth/logout")) {
     res.setHeader("Set-Cookie", "admin_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax");
     if (url.includes("/api/auth/logout") && !url.includes("trpc")) return res.status(200).json({ ok: true });
-    return okResp(res, { ok: true }, batch);
+    return res.status(200).json([{ result: { data: { json: { ok: true } } } }]);
   }
 
   // ── auth.setup ────────────────────────────────────────────
@@ -259,190 +287,77 @@ export default async function handler(req, res) {
       await ensureTables();
       const sql = getDb();
       const [{ c }] = await sql`SELECT COUNT(*) as c FROM admin_users`;
-      if (Number(c) > 0) return errResp(res, "Admin já existe", batch);
-      const { email, password, name } = input;
-      if (!email || !password || !name) return errResp(res, "Dados incompletos", batch);
+      if (Number(c) > 0) return res.status(200).json([{ error: { json: { message: "Admin já existe" } } }]);
+      const input = rawBody?.["0"]?.json ?? rawBody;
+      const { email, password, name } = input ?? {};
+      if (!email || !password || !name) return res.status(200).json([{ error: { json: { message: "Dados incompletos" } } }]);
       const hash = await bcrypt.hash(password, 12);
-      const rows = await sql`INSERT INTO admin_users (email,"passwordHash",name,role,"isActive")
-        VALUES (${email},${hash},${name},'admin',TRUE) RETURNING id,name,email,role`;
-      return okResp(res, rows[0], batch);
-    } catch (e) { return errResp(res, "Erro: " + e.message, batch); }
+      const rows = await sql`INSERT INTO admin_users (email,"passwordHash",name,role,"isActive") VALUES (${email},${hash},${name},'admin',TRUE) RETURNING id,name,email,role`;
+      return res.status(200).json([{ result: { data: { json: rows[0] } } }]);
+    } catch (e) {
+      return res.status(200).json([{ error: { json: { message: "Erro: " + e.message } } }]);
+    }
   }
 
-  // ── Rotas protegidas ──────────────────────────────────────
+  // ── Rotas protegidas — suporte a BATCH MULTI-ENDPOINT ─────
   const user = await getUserFromToken(req);
   if (!user) {
-    const unauth = { error: { json: { message: "Não autorizado", code: "UNAUTHORIZED" } } };
-    return res.status(200).json(batch ? [unauth] : unauth);
+    return res.status(200).json([{ error: { json: { message: "Não autorizado", code: "UNAUTHORIZED" } } }]);
+  }
+
+  // Conectar ao banco
+  if (!isDbAvailable()) {
+    return res.status(200).json([{ error: { json: { message: "Banco não configurado. Configure DATABASE_URL no Vercel." } } }]);
+  }
+  let sql;
+  try {
+    await withTimeout(ensureTables(), 5000);
+    sql = getDb();
+  } catch (dbErr) {
+    return res.status(200).json([{ error: { json: { message: "Banco indisponível: " + dbErr.message } } }]);
   }
 
   try {
-    // Verifica se banco está disponível antes de tentar conectar
-    if (!isDbAvailable()) {
-      return errResp(res, "Banco de dados não configurado. Configure DATABASE_URL no Vercel com uma string PostgreSQL válida (Neon, Railway, etc.).", batch);
-    }
-    // Tenta conectar ao banco — se falhar, retorna erro claro
-    let sql;
-    try {
-      const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-      await withTimeout(ensureTables(), 5000);
-      sql = getDb();
-    } catch (dbConnErr) {
-      return errResp(res, "Banco de dados indisponível. Verifique DATABASE_URL no Vercel. Erro: " + dbConnErr.message, batch);
+    // Extrair os endpoints da URL: /api/trpc/endpoint1,endpoint2?batch=1
+    const pathPart = url.split("?")[0].replace(/^.*\/api\/trpc\//, "");
+    const endpoints = pathPart.split(",").map(e => e.trim()).filter(Boolean);
+
+    // Extrair inputs do body (formato batch: {"0": {json: ...}, "1": {json: ...}})
+    const inputs = {};
+    if (rawBody && typeof rawBody === "object") {
+      for (const key of Object.keys(rawBody)) {
+        const idx = parseInt(key);
+        if (!isNaN(idx)) {
+          const item = rawBody[key];
+          inputs[idx] = item?.json ?? item?.input ?? item ?? {};
+        }
+      }
     }
 
-    if (url.includes("dashboard.stats")) {
-      const [p, pub, dr, sc, ar, cat, med, lea, nlea, faq] = await Promise.all([
-        sql`SELECT COUNT(*) c FROM blog_posts`,
-        sql`SELECT COUNT(*) c FROM blog_posts WHERE status='published'`,
-        sql`SELECT COUNT(*) c FROM blog_posts WHERE status='draft'`,
-        sql`SELECT COUNT(*) c FROM blog_posts WHERE status='scheduled'`,
-        sql`SELECT COUNT(*) c FROM blog_posts WHERE status='archived'`,
-        sql`SELECT COUNT(*) c FROM blog_categories`,
-        sql`SELECT COUNT(*) c FROM media_files`,
-        sql`SELECT COUNT(*) c FROM leads`,
-        sql`SELECT COUNT(*) c FROM leads WHERE status='new'`,
-        sql`SELECT COUNT(*) c FROM faq_items`,
-      ]);
-      return okResp(res, {
-        totalPosts: Number(p[0].c), published: Number(pub[0].c), drafts: Number(dr[0].c),
-        scheduled: Number(sc[0].c), archived: Number(ar[0].c), totalCategories: Number(cat[0].c),
-        totalMedia: Number(med[0].c), totalLeads: Number(lea[0].c), newLeads: Number(nlea[0].c),
-        totalFaq: Number(faq[0].c),
-      }, batch);
-    }
+    // Executar cada endpoint em paralelo
+    const results = await Promise.all(
+      endpoints.map(async (endpoint, idx) => {
+        const input = inputs[idx] ?? {};
+        try {
+          const data = await execEndpoint(endpoint, input, sql);
+          return { result: { data: { json: data ?? null } } };
+        } catch (e) {
+          console.error(`[API] Erro em ${endpoint}:`, e.message);
+          return { error: { json: { message: e.message, code: "INTERNAL_SERVER_ERROR" } } };
+        }
+      })
+    );
 
-    if (url.includes("dashboard.recentPosts")) {
-      return okResp(res, await sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC LIMIT 5`, batch);
+    // Se só há 1 endpoint e não é batch explícito, pode retornar direto
+    const isBatchReq = url.includes("batch=1") || endpoints.length > 1 || (rawBody && rawBody["0"] !== undefined);
+    if (isBatchReq) {
+      return res.status(200).json(results);
+    } else {
+      return res.status(200).json(results[0] ?? { result: { data: { json: null } } });
     }
-    if (url.includes("dashboard.recentLeads")) {
-      return okResp(res, await sql`SELECT * FROM leads ORDER BY "createdAt" DESC LIMIT 5`, batch);
-    }
-    if (url.includes("blog.list")) {
-      return okResp(res, await sql`SELECT * FROM blog_posts ORDER BY "createdAt" DESC`, batch);
-    }
-    if (url.includes("blog.getById")) {
-      const id = Number(input.id);
-      if (!id) return okResp(res, null, batch);
-      const rows = await sql`SELECT * FROM blog_posts WHERE id=${id} LIMIT 1`;
-      return okResp(res, rows[0] ?? null, batch);
-    }
-    if (url.includes("blog.upsert")) {
-      const d = input;
-      const isPub = d.status === "published";
-      const pubAt = isPub ? (d.publishedAt ? new Date(d.publishedAt) : new Date()) : (d.publishedAt ? new Date(d.publishedAt) : null);
-      const schAt = d.scheduledAt ? new Date(d.scheduledAt) : null;
-      if (d.id) {
-        const rows = await sql`UPDATE blog_posts SET
-          slug=${d.slug},title=${d.title},subtitle=${d.subtitle??null},excerpt=${d.excerpt??null},
-          content=${d.content??null},"coverImage"=${d.coverImage??null},"coverImageAlt"=${d.coverImageAlt??null},
-          "videoUrl"=${d.videoUrl??null},"authorName"=${d.authorName??null},category=${d.category??null},
-          tags=${d.tags??null},"metaTitle"=${d.metaTitle??null},"metaDescription"=${d.metaDescription??null},
-          "metaKeywords"=${d.metaKeywords??null},"ogImage"=${d.ogImage??null},"ctaText"=${d.ctaText??null},
-          "ctaUrl"=${d.ctaUrl??null},status=${d.status??'draft'},"isFeatured"=${d.isFeatured??false},
-          "isPublished"=${isPub},"publishedAt"=${pubAt},"scheduledAt"=${schAt},"updatedAt"=NOW()
-          WHERE id=${d.id} RETURNING *`;
-        return okResp(res, rows[0], batch);
-      }
-      const rows = await sql`INSERT INTO blog_posts
-        (slug,title,subtitle,excerpt,content,"coverImage","coverImageAlt","videoUrl","authorName",
-        category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",
-        status,"isFeatured","isPublished","publishedAt","scheduledAt")
-        VALUES (${d.slug},${d.title},${d.subtitle??null},${d.excerpt??null},${d.content??null},
-        ${d.coverImage??null},${d.coverImageAlt??null},${d.videoUrl??null},${d.authorName??null},
-        ${d.category??null},${d.tags??null},${d.metaTitle??null},${d.metaDescription??null},
-        ${d.metaKeywords??null},${d.ogImage??null},${d.ctaText??null},${d.ctaUrl??null},
-        ${d.status??'draft'},${d.isFeatured??false},${isPub},${pubAt},${schAt}) RETURNING *`;
-      return okResp(res, rows[0], batch);
-    }
-    if (url.includes("blog.delete")) {
-      await sql`DELETE FROM blog_posts WHERE id=${Number(input.id)}`;
-      return okResp(res, { ok: true }, batch);
-    }
-    if (url.includes("categories.list")) {
-      return okResp(res, await sql`SELECT * FROM blog_categories ORDER BY "sortOrder" ASC, name ASC`, batch);
-    }
-    if (url.includes("categories.upsert")) {
-      const d = input;
-      if (d.id) {
-        const rows = await sql`UPDATE blog_categories SET slug=${d.slug},name=${d.name},
-          description=${d.description??null},"sortOrder"=${d.sortOrder??0} WHERE id=${d.id} RETURNING *`;
-        return okResp(res, rows[0], batch);
-      }
-      const rows = await sql`INSERT INTO blog_categories (slug,name,description,"sortOrder")
-        VALUES (${d.slug},${d.name},${d.description??null},${d.sortOrder??0}) RETURNING *`;
-      return okResp(res, rows[0], batch);
-    }
-    if (url.includes("categories.delete")) {
-      await sql`DELETE FROM blog_categories WHERE id=${Number(input.id)}`;
-      return okResp(res, { ok: true }, batch);
-    }
-    if (url.includes("faq.list")) {
-      return okResp(res, await sql`SELECT * FROM faq_items ORDER BY "sortOrder" ASC, id ASC`, batch);
-    }
-    if (url.includes("faq.upsert")) {
-      const d = input;
-      if (d.id) {
-        const rows = await sql`UPDATE faq_items SET question=${d.question},answer=${d.answer},
-          category=${d.category??null},"isPublished"=${d.isPublished??true},
-          "sortOrder"=${d.sortOrder??0},"updatedAt"=NOW() WHERE id=${d.id} RETURNING *`;
-        return okResp(res, rows[0], batch);
-      }
-      const rows = await sql`INSERT INTO faq_items (question,answer,category,"isPublished","sortOrder")
-        VALUES (${d.question},${d.answer},${d.category??null},${d.isPublished??true},${d.sortOrder??0}) RETURNING *`;
-      return okResp(res, rows[0], batch);
-    }
-    if (url.includes("faq.delete")) {
-      await sql`DELETE FROM faq_items WHERE id=${Number(input.id)}`;
-      return okResp(res, { ok: true }, batch);
-    }
-    if (url.includes("leads.list")) {
-      return okResp(res, await sql`SELECT * FROM leads ORDER BY "createdAt" DESC`, batch);
-    }
-    if (url.includes("leads.updateStatus")) {
-      const rows = await sql`UPDATE leads SET status=${input.status},"updatedAt"=NOW()
-        WHERE id=${Number(input.id)} RETURNING *`;
-      return okResp(res, rows[0], batch);
-    }
-    if (url.includes("leads.delete")) {
-      await sql`DELETE FROM leads WHERE id=${Number(input.id)}`;
-      return okResp(res, { ok: true }, batch);
-    }
-    if (url.includes("media.list")) {
-      return okResp(res, await sql`SELECT * FROM media_files ORDER BY "createdAt" DESC`, batch);
-    }
-    if (url.includes("media.upload")) {
-      const d = input;
-      const rows = await sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt)
-        VALUES (${d.filename},${d.originalName},${d.mimeType},${d.size},${d.url},${d.fileKey},${d.alt??null}) RETURNING *`;
-      return okResp(res, rows[0], batch);
-    }
-    if (url.includes("media.delete")) {
-      const rows = await sql`SELECT * FROM media_files WHERE id=${Number(input.id)} LIMIT 1`;
-      await sql`DELETE FROM media_files WHERE id=${Number(input.id)}`;
-      return okResp(res, rows[0] ?? null, batch);
-    }
-    if (url.includes("settings.list")) {
-      return okResp(res, await sql`SELECT * FROM site_settings`, batch);
-    }
-    if (url.includes("settings.upsert") && !url.includes("Many")) {
-      await sql`INSERT INTO site_settings ("settingKey","settingValue","updatedAt") VALUES (${input.key},${input.value},NOW())
-        ON CONFLICT ("settingKey") DO UPDATE SET "settingValue"=EXCLUDED."settingValue","updatedAt"=NOW()`;
-      return okResp(res, { ok: true }, batch);
-    }
-    if (url.includes("settings.upsertMany")) {
-      const items = Array.isArray(input) ? input : [];
-      for (const item of items) {
-        await sql`INSERT INTO site_settings ("settingKey","settingValue","updatedAt") VALUES (${item.key},${item.value},NOW())
-          ON CONFLICT ("settingKey") DO UPDATE SET "settingValue"=EXCLUDED."settingValue","updatedAt"=NOW()`;
-      }
-      return okResp(res, { ok: true }, batch);
-    }
-
-    return okResp(res, null, batch);
 
   } catch (e) {
     console.error("[API Error]", e.message, url);
-    return errResp(res, "Erro interno: " + e.message, batch);
+    return res.status(200).json([{ error: { json: { message: "Erro interno: " + e.message } } }]);
   }
 }

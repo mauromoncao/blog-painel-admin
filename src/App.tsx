@@ -1,3 +1,4 @@
+import React from "react";
 import { Switch, Route, Redirect } from "wouter";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { Toaster } from "sonner";
@@ -14,6 +15,43 @@ import Settings from "./pages/Settings";
 import EnvVariables from "./pages/EnvVariables";
 import SetupPage from "./pages/SetupPage";
 
+// ── ErrorBoundary ──────────────────────────────────────────────
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean; error: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: "" };
+  }
+  static getDerivedStateFromError(err: any) {
+    return { hasError: true, error: String(err?.message ?? err) };
+  }
+  componentDidCatch(err: any, info: any) {
+    console.error("[ErrorBoundary]", err, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 p-8 text-center">
+          <div className="text-5xl">⚠️</div>
+          <h2 className="text-xl font-bold text-gray-800">Erro ao carregar esta página</h2>
+          <p className="text-gray-500 text-sm max-w-md">{this.state.error}</p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: "" }); window.location.reload(); }}
+            className="px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow"
+            style={{ background: "linear-gradient(135deg, #E8B84B, #d4a039)" }}
+          >
+            Tentar novamente
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── PrivateRoute ───────────────────────────────────────────────
 function PrivateRoute({ component: C }: { component: React.ComponentType }) {
   const { user, loading } = useAuth();
   if (loading) return (
@@ -22,7 +60,11 @@ function PrivateRoute({ component: C }: { component: React.ComponentType }) {
     </div>
   );
   if (!user) return <Redirect to="/login" />;
-  return <C />;
+  return (
+    <ErrorBoundary>
+      <C />
+    </ErrorBoundary>
+  );
 }
 
 function AppRoutes() {
@@ -88,7 +130,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <ErrorBoundary>
+        <AppRoutes />
+      </ErrorBoundary>
       <Toaster position="top-right" richColors />
     </AuthProvider>
   );

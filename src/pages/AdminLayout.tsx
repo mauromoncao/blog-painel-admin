@@ -26,7 +26,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isActive = (href: string) => location === href || (href !== "/dashboard" && location.startsWith(href));
+  const isActive = (href: string) => {
+    if (href === "/blog/new") return location === "/blog/new";
+    if (href === "/blog") return location === "/blog" || (location.startsWith("/blog/") && location !== "/blog/new");
+    return location === href || (href !== "/dashboard" && href !== "/blog" && location.startsWith(href));
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
