@@ -214,6 +214,70 @@ export default async function handler(req, res) {
   const url = req.url ?? "";
   const rawBody = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body ?? {});
 
+  // ── ROTAS PÚBLICAS (sem autenticação) ────────────────────
+  // blog.listPublic — posts publicados para o site institucional
+  if (url.includes("blog.listPublic") || url.includes("/api/blog/public")) {
+    try {
+      if (!isDbAvailable()) return res.status(200).json({ result: { data: { json: [] } } });
+      await withTimeout(ensureTables(), 4000);
+      const sql = getDb();
+      const posts = await withTimeout(
+        sql`SELECT id,slug,title,subtitle,excerpt,"coverImage","coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt"
+            FROM blog_posts WHERE status='published' AND "isPublished"=true ORDER BY "publishedAt" DESC, "createdAt" DESC`,
+        5000
+      );
+      const arr = toArr(posts);
+      // Formato compatível com tRPC batch ou direto
+      if (url.includes("batch=1") || url.includes("?batch")) {
+        return res.status(200).json([{ result: { data: { json: arr } } }]);
+      }
+      return res.status(200).json({ result: { data: arr } });
+    } catch (e) {
+      console.error("[blog.listPublic]", e.message);
+      return res.status(200).json({ result: { data: [] } });
+    }
+  }
+
+  // faq.listPublic — FAQs publicadas para o site institucional
+  if (url.includes("faq.listPublic") || url.includes("/api/faq/public")) {
+    try {
+      if (!isDbAvailable()) return res.status(200).json({ result: { data: { json: [] } } });
+      await withTimeout(ensureTables(), 4000);
+      const sql = getDb();
+      const faqs = await withTimeout(
+        sql`SELECT * FROM faq_items WHERE "isPublished"=true ORDER BY "sortOrder" ASC, id ASC`,
+        5000
+      );
+      const arr = toArr(faqs);
+      if (url.includes("batch=1") || url.includes("?batch")) {
+        return res.status(200).json([{ result: { data: { json: arr } } }]);
+      }
+      return res.status(200).json({ result: { data: arr } });
+    } catch (e) {
+      console.error("[faq.listPublic]", e.message);
+      return res.status(200).json({ result: { data: [] } });
+    }
+  }
+
+  // settings.list público (sem auth) — para o site ler configurações
+  if (url.includes("settings.list") && req.method === "GET" && !url.includes("Authorization") ) {
+    // Verificar se tem token — se não tiver, retornar settings públicas
+    const hasToken = req.headers?.authorization || req.headers?.cookie?.includes("admin_token");
+    if (!hasToken) {
+      try {
+        if (!isDbAvailable()) return res.status(200).json({ result: { data: [] } });
+        await withTimeout(ensureTables(), 4000);
+        const sql = getDb();
+        const settings = await withTimeout(sql`SELECT * FROM site_settings`, 4000);
+        const arr = toArr(settings);
+        if (url.includes("batch=1")) return res.status(200).json([{ result: { data: { json: arr } } }]);
+        return res.status(200).json({ result: { data: arr } });
+      } catch (e) {
+        return res.status(200).json({ result: { data: [] } });
+      }
+    }
+  }
+
   // ── /api/upload ───────────────────────────────────────────
   if (url.includes("/api/upload") && req.method === "POST") {
     try {
