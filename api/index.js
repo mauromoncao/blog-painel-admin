@@ -205,10 +205,14 @@ export default async function handler(req, res) {
   const batch = isBatchReq(url, body);
   const input = parseInput(body);
 
-  // ── auth.login ────────────────────────────────────────────
-  if (url.includes("auth.login")) {
+  // ── auth.login — suporta tanto /api/auth/login (REST) quanto /api/trpc/auth.login (tRPC)
+  if (url.includes("auth.login") || url.includes("/api/auth/login")) {
     try {
-      const { email, password } = input;
+      // REST direto: body = { email, password }
+      // tRPC batch: body = { "0": { json: { email, password } } }
+      const directBody = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body ?? {});
+      const restInput = directBody?.["0"]?.json ?? directBody?.json ?? directBody;
+      const { email, password } = restInput?.email ? restInput : input;
       if (!email || !password) return err(res, "Email e senha são obrigatórios", batch);
 
       let user = null;
@@ -236,22 +240,35 @@ export default async function handler(req, res) {
         await sql`UPDATE admin_users SET "lastSignedIn" = NOW() WHERE id = ${user.id}`;
       } catch {}
 
-      return ok(res, { id: user.id, name: user.name, email: user.email, role: user.role, token }, batch);
+      const payload = { id: user.id, name: user.name, email: user.email, role: user.role, token };
+
+      // Se chamada REST direta (/api/auth/login) retorna JSON simples
+      if (url.includes("/api/auth/login") && !url.includes("trpc")) {
+        return res.status(200).json(payload);
+      }
+
+      return ok(res, payload, batch);
     } catch (e) {
       return err(res, "Erro interno: " + e.message, batch);
     }
   }
 
   // ── auth.me ───────────────────────────────────────────────
-  if (url.includes("auth.me")) {
+  if (url.includes("auth.me") || url.includes("/api/auth/me")) {
     const u = await getUserFromToken(req);
     const data = u ? { id: u.id, name: u.name, email: u.email, role: u.role } : null;
+    if (url.includes("/api/auth/me") && !url.includes("trpc")) {
+      return res.status(200).json(data);
+    }
     return ok(res, data, batch);
   }
 
   // ── auth.logout ───────────────────────────────────────────
-  if (url.includes("auth.logout")) {
+  if (url.includes("auth.logout") || url.includes("/api/auth/logout")) {
     res.setHeader("Set-Cookie", "admin_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax");
+    if (url.includes("/api/auth/logout") && !url.includes("trpc")) {
+      return res.status(200).json({ ok: true });
+    }
     return ok(res, { ok: true }, batch);
   }
 
