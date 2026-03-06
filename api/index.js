@@ -222,7 +222,10 @@ export default async function handler(req, res) {
       await withTimeout(ensureTables(), 4000);
       const sql = getDb();
       const posts = await withTimeout(
-        sql`SELECT id,slug,title,subtitle,excerpt,"coverImage","coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt"
+        sql`SELECT id,slug,title,subtitle,excerpt,content,"coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt",
+            CASE WHEN "coverImage" IS NULL THEN NULL
+                 WHEN "coverImage" LIKE 'data:%' THEN NULL
+                 ELSE "coverImage" END AS "coverImage"
             FROM blog_posts WHERE status='published' AND "isPublished"=true ORDER BY "publishedAt" DESC, "createdAt" DESC`,
         5000
       );
@@ -235,6 +238,42 @@ export default async function handler(req, res) {
     } catch (e) {
       console.error("[blog.listPublic]", e.message);
       return res.status(200).json({ result: { data: [] } });
+    }
+  }
+
+  // blog.getBySlug — post individual pelo slug (público)
+  if (url.includes("blog.getBySlug") || url.includes("/api/blog/slug/")) {
+    try {
+      // Extrair slug da URL ou do query string
+      let slug = null;
+      const slugMatch = url.match(/blog\.getBySlug[?&].*input=([^&]+)/);
+      if (slugMatch) {
+        try { slug = JSON.parse(decodeURIComponent(slugMatch[1]))?.json ?? null; } catch {}
+      }
+      if (!slug) {
+        const pathMatch = url.match(/\/api\/blog\/slug\/([^?/]+)/);
+        if (pathMatch) slug = decodeURIComponent(pathMatch[1]);
+      }
+      if (!slug) {
+        const bodySlug = rawBody?.slug ?? rawBody?.[0]?.json?.slug;
+        if (bodySlug) slug = bodySlug;
+      }
+      if (!slug || !isDbAvailable()) return res.status(200).json({ result: { data: null } });
+      await withTimeout(ensureTables(), 4000);
+      const sql = getDb();
+      const rows = await withTimeout(
+        sql`SELECT id,slug,title,subtitle,excerpt,content,"coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt",
+            CASE WHEN "coverImage" IS NULL THEN NULL
+                 WHEN "coverImage" LIKE 'data:%' THEN NULL
+                 ELSE "coverImage" END AS "coverImage"
+            FROM blog_posts WHERE slug=${slug} AND status='published' AND "isPublished"=true LIMIT 1`,
+        5000
+      );
+      const post = toArr(rows)[0] ?? null;
+      return res.status(200).json({ result: { data: post } });
+    } catch (e) {
+      console.error("[blog.getBySlug]", e.message);
+      return res.status(200).json({ result: { data: null } });
     }
   }
 
