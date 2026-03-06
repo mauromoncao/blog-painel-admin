@@ -7,11 +7,19 @@ const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
 
 // ── Banco de dados ─────────────────────────────────────────────
 let _sql = null;
+function isDbAvailable() {
+  const dbUrl = process.env.DATABASE_URL ?? "";
+  // Verifica se a URL parece válida (não é Supabase pausado ou placeholder)
+  if (!dbUrl || dbUrl.includes("supabase.co") || dbUrl === "postgresql://usuario:senha@host:5432/nome_do_banco") {
+    return false;
+  }
+  return true;
+}
 function getDb() {
   if (_sql) return _sql;
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL não configurada");
-  _sql = postgres(dbUrl, { max: 3, idle_timeout: 5, connect_timeout: 3, max_lifetime: 60 });
+  _sql = postgres(dbUrl, { max: 3, idle_timeout: 5, connect_timeout: 5, max_lifetime: 60, connection: { application_name: "admin-panel" } });
   return _sql;
 }
 
@@ -58,16 +66,16 @@ async function getUserFromToken(req) {
     // Primeiro tenta o fallback local — rápido e sem depender do banco
     const fallback = FALLBACK_USERS.find(u => u.id === payload.id);
     if (fallback) return fallback;
-    // Se não achou no fallback, tenta o banco
-    try {
-      const sql = getDb();
-      const rows = await sql`SELECT id, email, name, role, "isActive" FROM admin_users WHERE id = ${payload.id} LIMIT 1`;
-      const u = rows[0];
-      if (!u || !u.isActive) return null;
-      return u;
-    } catch {
-      return null;
+    // Se não achou no fallback, tenta o banco (só se disponível)
+    if (isDbAvailable()) {
+      try {
+        const sql = getDb();
+        const rows = await sql`SELECT id, email, name, role, "isActive" FROM admin_users WHERE id = ${payload.id} LIMIT 1`;
+        const u = rows[0];
+        if (u && u.isActive) return u;
+      } catch { /* banco indisponível */ }
     }
+    return null;
   } catch {
     return null;
   }
@@ -169,17 +177,24 @@ export default async function handler(req, res) {
       const dataUrl = b64.startsWith("data:") ? b64 : `data:${type};base64,${b64}`;
       const key = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-      // Tenta salvar no banco — se falhar, retorna a dataUrl diretamente (funciona sem banco)
-      let record = { id: Date.now(), filename: key, originalName: name, mimeType: type, size: size ?? 0, url: dataUrl, fileKey: key, alt: name, createdAt: new Date().toISOString() };
-      try {
-        await ensureTables();
-        const sql = getDb();
-        const rows = await sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt)
-          VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`;
-        record = rows[0];
-      } catch (dbErr) {
-        // Banco indisponível — retorna o registro em memória com a dataUrl
-        console.error("[Upload] DB error, returning in-memory:", dbErr.message);
+      // Monta registro em memória (funciona SEM banco)
+      const record = { id: Date.now(), filename: key, originalName: name, mimeType: type, size: size ?? 0, url: dataUrl, fileKey: key, alt: name, createdAt: new Date().toISOString() };
+
+      // Só tenta salvar no banco se o DATABASE_URL for válido (não Supabase pausado)
+      if (isDbAvailable()) {
+        try {
+          const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("DB timeout")), ms))]);
+          await withTimeout(ensureTables(), 4000);
+          const sql = getDb();
+          const rows = await withTimeout(
+            sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt)
+              VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`,
+            4000
+          );
+          Object.assign(record, rows[0]);
+        } catch (dbErr) {
+          console.error("[Upload] DB indisponível, usando in-memory:", dbErr.message);
+        }
       }
       return res.status(200).json(record);
     } catch (e) {
@@ -196,12 +211,13 @@ export default async function handler(req, res) {
       // 1. Tenta fallback local PRIMEIRO (rápido, sem banco)
       let user = FALLBACK_USERS.find(u => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
 
-      // 2. Se não achou no fallback, tenta o banco
-      if (!user) {
+      // 2. Se não achou no fallback, tenta o banco (só se DATABASE_URL válido)
+      if (!user && isDbAvailable()) {
         try {
-          await ensureTables();
+          const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+          await withTimeout(ensureTables(), 4000);
           const sql = getDb();
-          const rows = await sql`SELECT * FROM admin_users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
+          const rows = await withTimeout(sql`SELECT * FROM admin_users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`, 4000);
           user = rows[0] ?? null;
         } catch { /* banco fora do ar — continua sem ele */ }
       }
@@ -261,13 +277,18 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Verifica se banco está disponível antes de tentar conectar
+    if (!isDbAvailable()) {
+      return errResp(res, "Banco de dados não configurado. Configure DATABASE_URL no Vercel com uma string PostgreSQL válida (Neon, Railway, etc.).", batch);
+    }
     // Tenta conectar ao banco — se falhar, retorna erro claro
     let sql;
     try {
-      await ensureTables();
+      const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+      await withTimeout(ensureTables(), 5000);
       sql = getDb();
     } catch (dbConnErr) {
-      return errResp(res, "Banco de dados indisponível. Verifique DATABASE_URL no Vercel. (" + dbConnErr.message + ")", batch);
+      return errResp(res, "Banco de dados indisponível. Verifique DATABASE_URL no Vercel. Erro: " + dbConnErr.message, batch);
     }
 
     if (url.includes("dashboard.stats")) {
