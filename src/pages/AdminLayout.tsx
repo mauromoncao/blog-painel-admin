@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "../contexts/AuthContext";
 import {
   LayoutDashboard, FileText, Plus, Tag, Image, HelpCircle, Users, Settings, LogOut,
-  Menu, X, ChevronRight, Shield
+  Menu, X, ChevronRight, Shield, Terminal
 } from "lucide-react";
 
 const GOLD = "#E8B84B";
@@ -18,6 +18,7 @@ const NAV = [
   { href: "/faq",        label: "FAQ",             icon: HelpCircle },
   { href: "/leads",      label: "Leads",           icon: Users },
   { href: "/settings",   label: "Configurações",   icon: Settings },
+  { href: "/env",        label: "Env Variables",    icon: Terminal },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

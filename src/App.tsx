@@ -11,6 +11,7 @@ import MediaLibrary from "./pages/MediaLibrary";
 import FaqAdmin from "./pages/FaqAdmin";
 import LeadsAdmin from "./pages/LeadsAdmin";
 import Settings from "./pages/Settings";
+import EnvVariables from "./pages/EnvVariables";
 import SetupPage from "./pages/SetupPage";
 
 function PrivateRoute({ component: C }: { component: React.ComponentType }) {
@@ -73,6 +74,11 @@ function AppRoutes() {
       <Route path="/settings" component={() => (
         <AdminLayout>
           <PrivateRoute component={Settings} />
+        </AdminLayout>
+      )} />
+      <Route path="/env" component={() => (
+        <AdminLayout>
+          <PrivateRoute component={EnvVariables} />
         </AdminLayout>
       )} />
     </Switch>
