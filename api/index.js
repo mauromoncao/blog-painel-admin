@@ -9,8 +9,8 @@ const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
 let _sql = null;
 function isDbAvailable() {
   const dbUrl = process.env.DATABASE_URL ?? "";
-  // Verifica se a URL parece válida (não é Supabase pausado ou placeholder)
-  if (!dbUrl || dbUrl.includes("supabase.co") || dbUrl === "postgresql://usuario:senha@host:5432/nome_do_banco") {
+  // Rejeita apenas URLs claramente inválidas ou placeholder de exemplo
+  if (!dbUrl || dbUrl === "postgresql://usuario:senha@host:5432/nome_do_banco") {
     return false;
   }
   return true;
