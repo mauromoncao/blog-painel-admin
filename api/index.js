@@ -394,6 +394,54 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── /api/migrate-images ─ migra base64 → Imgur CDN ──────────
+  if (url.includes("/api/migrate-images") && req.method === "POST") {
+    try {
+      const migrUser = await getUserFromToken(req);
+      if (!migrUser) return res.status(401).json({ error: "Não autorizado" });
+      if (!isDbAvailable()) return res.status(200).json({ migrated: 0, message: "DB indisponível" });
+      await withTimeout(ensureTables(), 4000);
+      const sql = getDb();
+      // Buscar todos os posts com coverImage em base64
+      const posts = await withTimeout(
+        sql`SELECT id, slug, "coverImage" FROM blog_posts WHERE "coverImage" LIKE 'data:%'`,
+        8000
+      );
+      const arr = toArr(posts);
+      console.log(`[migrate-images] ${arr.length} posts com base64 encontrados`);
+      const results = [];
+      for (const post of arr) {
+        try {
+          const pureB64 = post.coverImage.split(",")[1] || post.coverImage;
+          const imgurRes = await withTimeout(
+            fetch("https://api.imgur.com/3/image", {
+              method: "POST",
+              headers: { Authorization: "Client-ID 546c25a59c58ad7", "Content-Type": "application/json" },
+              body: JSON.stringify({ image: pureB64, type: "base64", name: `post_${post.id}` }),
+            }),
+            15000
+          );
+          if (imgurRes.ok) {
+            const imgurData = await imgurRes.json();
+            const imgurUrl = imgurData?.data?.link;
+            if (imgurUrl) {
+              await sql`UPDATE blog_posts SET "coverImage"=${imgurUrl}, "updatedAt"=NOW() WHERE id=${post.id}`;
+              results.push({ id: post.id, slug: post.slug, url: imgurUrl, ok: true });
+              console.log(`[migrate-images] Post ${post.id} → ${imgurUrl}`);
+            }
+          } else {
+            results.push({ id: post.id, slug: post.slug, ok: false, error: `Imgur HTTP ${imgurRes.status}` });
+          }
+        } catch (postErr) {
+          results.push({ id: post.id, slug: post.slug, ok: false, error: postErr.message });
+        }
+      }
+      return res.status(200).json({ migrated: results.filter(r => r.ok).length, total: arr.length, results });
+    } catch (e) {
+      return res.status(500).json({ error: "Erro na migração: " + e.message });
+    }
+  }
+
   // ── auth.login (REST + tRPC) ───────────────────────────────
   if (url.includes("auth.login") || (url.includes("/api/auth/login") && !url.includes("trpc"))) {
     try {
