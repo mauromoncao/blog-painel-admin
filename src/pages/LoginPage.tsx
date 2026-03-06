@@ -4,10 +4,7 @@ import { toast } from "sonner";
 const GOLD = "#E8B84B";
 const NAVY = "#19385C";
 
-const ALLOWED_EMAILS = [
-  "mauromoncaoestudos@gmail.com",
-  "mauromoncaoadv.escritorio@gmail.com",
-];
+// Validação de e-mail feita pelo servidor — não bloquear no frontend
 
 export default function LoginPage() {
   const [email, setEmail]       = useState("");
@@ -38,11 +35,6 @@ export default function LoginPage() {
     if (!email || !password) { toast.error("Preencha todos os campos"); return; }
 
     const emailNorm = email.toLowerCase().trim();
-    if (!ALLOWED_EMAILS.includes(emailNorm)) {
-      toast.error("Acesso não autorizado para este e-mail.");
-      return;
-    }
-
     setLoading(true);
     try {
       // Usar fetch direto — sem tRPC — para evitar problema de token

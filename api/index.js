@@ -16,12 +16,14 @@ function getDb() {
 }
 
 // ── Usuários fallback (sem banco) ──────────────────────────────
+// Cada usuário pode ter seu próprio hash de senha via variável de ambiente
 const FALLBACK_USERS = [
   {
     id: 1,
     email: "mauromoncaoestudos@gmail.com",
     name: "Mauro Monção",
     role: "admin",
+    isActive: true,
     passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
   },
   {
@@ -29,8 +31,18 @@ const FALLBACK_USERS = [
     email: "mauromoncaoadv.escritorio@gmail.com",
     name: "Escritório Mauro Monção",
     role: "admin",
-    passwordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
+    isActive: true,
+    passwordHash: process.env.ADMIN_PASSWORD_HASH_2 ?? process.env.ADMIN_PASSWORD_HASH ?? "",
   },
+  // Usuário extra para equipe — configure TEAM_EMAIL e TEAM_PASSWORD_HASH no Vercel
+  ...(process.env.TEAM_EMAIL ? [{
+    id: 3,
+    email: process.env.TEAM_EMAIL,
+    name: process.env.TEAM_NAME ?? "Equipe",
+    role: process.env.TEAM_ROLE ?? "editor",
+    isActive: true,
+    passwordHash: process.env.TEAM_PASSWORD_HASH ?? process.env.ADMIN_PASSWORD_HASH ?? "",
+  }] : []),
 ];
 
 // ── Auth helpers ───────────────────────────────────────────────
