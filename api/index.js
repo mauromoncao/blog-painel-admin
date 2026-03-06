@@ -319,12 +319,24 @@ export default async function handler(req, res) {
 
   try {
     // Extrair os endpoints da URL: /api/trpc/endpoint1,endpoint2?batch=1
-    const pathPart = url.split("?")[0].replace(/^.*\/api\/trpc\//, "");
+    const [pathOnly, qs] = url.split("?");
+    const pathPart = pathOnly.replace(/^.*\/api\/trpc\//, "");
     const endpoints = pathPart.split(",").map(e => e.trim()).filter(Boolean);
 
-    // Extrair inputs do body (formato batch: {"0": {json: ...}, "1": {json: ...}})
-    const inputs = {};
-    if (rawBody && typeof rawBody === "object") {
+    // Parsear query string para GET requests
+    const queryParams = {};
+    if (qs) {
+      for (const part of qs.split("&")) {
+        const [k, v] = part.split("=");
+        if (k && v) queryParams[decodeURIComponent(k)] = decodeURIComponent(v);
+      }
+    }
+
+    // Extrair inputs: GET usa query string ?input=JSON, POST usa body
+    let inputs = {};
+
+    // 1. Tentar do body (mutations POST)
+    if (rawBody && typeof rawBody === "object" && Object.keys(rawBody).length > 0) {
       for (const key of Object.keys(rawBody)) {
         const idx = parseInt(key);
         if (!isNaN(idx)) {
@@ -332,6 +344,22 @@ export default async function handler(req, res) {
           inputs[idx] = item?.json ?? item?.input ?? item ?? {};
         }
       }
+    }
+
+    // 2. Tentar da query string (queries GET) — formato: input={"0":{"json":{...}}}
+    if (Object.keys(inputs).length === 0 && queryParams["input"]) {
+      try {
+        const parsed = JSON.parse(queryParams["input"]);
+        if (parsed && typeof parsed === "object") {
+          for (const key of Object.keys(parsed)) {
+            const idx = parseInt(key);
+            if (!isNaN(idx)) {
+              const item = parsed[key];
+              inputs[idx] = item?.json ?? item?.input ?? item ?? {};
+            }
+          }
+        }
+      } catch { /* input malformado — ignora */ }
     }
 
     // Executar cada endpoint em paralelo
@@ -348,8 +376,8 @@ export default async function handler(req, res) {
       })
     );
 
-    // Se só há 1 endpoint e não é batch explícito, pode retornar direto
-    const isBatchReq = url.includes("batch=1") || endpoints.length > 1 || (rawBody && rawBody["0"] !== undefined);
+    // Sempre retornar array (tRPC client sempre espera array no batch)
+    const isBatchReq = url.includes("batch=1") || endpoints.length > 1 || (rawBody && rawBody["0"] !== undefined) || queryParams["batch"] === "1";
     if (isBatchReq) {
       return res.status(200).json(results);
     } else {
