@@ -11,7 +11,7 @@ function getDb() {
   if (_sql) return _sql;
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL não configurada");
-  _sql = postgres(dbUrl, { max: 3, idle_timeout: 20, connect_timeout: 10 });
+  _sql = postgres(dbUrl, { max: 3, idle_timeout: 5, connect_timeout: 3, max_lifetime: 60 });
   return _sql;
 }
 
@@ -55,6 +55,10 @@ async function getUserFromToken(req) {
   if (!token) return null;
   try {
     const payload = jwt.verify(token, JWT_SECRET);
+    // Primeiro tenta o fallback local — rápido e sem depender do banco
+    const fallback = FALLBACK_USERS.find(u => u.id === payload.id);
+    if (fallback) return fallback;
+    // Se não achou no fallback, tenta o banco
     try {
       const sql = getDb();
       const rows = await sql`SELECT id, email, name, role, "isActive" FROM admin_users WHERE id = ${payload.id} LIMIT 1`;
@@ -62,7 +66,7 @@ async function getUserFromToken(req) {
       if (!u || !u.isActive) return null;
       return u;
     } catch {
-      return FALLBACK_USERS.find(u => u.id === payload.id) ?? null;
+      return null;
     }
   } catch {
     return null;
@@ -163,12 +167,21 @@ export default async function handler(req, res) {
       if (size > 5 * 1024 * 1024) return res.status(400).json({ error: "Arquivo excede 5MB" });
       if (!type.startsWith("image/")) return res.status(400).json({ error: "Apenas imagens permitidas" });
       const dataUrl = b64.startsWith("data:") ? b64 : `data:${type};base64,${b64}`;
-      await ensureTables();
-      const sql = getDb();
       const key = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const rows = await sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt)
-        VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`;
-      return res.status(200).json(rows[0]);
+
+      // Tenta salvar no banco — se falhar, retorna a dataUrl diretamente (funciona sem banco)
+      let record = { id: Date.now(), filename: key, originalName: name, mimeType: type, size: size ?? 0, url: dataUrl, fileKey: key, alt: name, createdAt: new Date().toISOString() };
+      try {
+        await ensureTables();
+        const sql = getDb();
+        const rows = await sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt)
+          VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`;
+        record = rows[0];
+      } catch (dbErr) {
+        // Banco indisponível — retorna o registro em memória com a dataUrl
+        console.error("[Upload] DB error, returning in-memory:", dbErr.message);
+      }
+      return res.status(200).json(record);
     } catch (e) {
       return res.status(500).json({ error: "Erro no upload: " + e.message });
     }
@@ -180,14 +193,17 @@ export default async function handler(req, res) {
       const { email, password } = input;
       if (!email || !password) return errResp(res, "Email e senha são obrigatórios", batch);
 
-      let user = null;
-      try {
-        await ensureTables();
-        const sql = getDb();
-        const rows = await sql`SELECT * FROM admin_users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
-        user = rows[0] ?? null;
-      } catch {
-        user = FALLBACK_USERS.find(u => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
+      // 1. Tenta fallback local PRIMEIRO (rápido, sem banco)
+      let user = FALLBACK_USERS.find(u => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
+
+      // 2. Se não achou no fallback, tenta o banco
+      if (!user) {
+        try {
+          await ensureTables();
+          const sql = getDb();
+          const rows = await sql`SELECT * FROM admin_users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
+          user = rows[0] ?? null;
+        } catch { /* banco fora do ar — continua sem ele */ }
       }
 
       if (!user || !user.passwordHash) return errResp(res, "Credenciais inválidas", batch);
