@@ -397,8 +397,11 @@ export default async function handler(req, res) {
   // ── /api/migrate-images ─ migra base64 → Imgur CDN ──────────
   if (url.includes("/api/migrate-images") && req.method === "POST") {
     try {
+      // Aceita JWT (admin logado) OU secret key no body para uso único
       const migrUser = await getUserFromToken(req);
-      if (!migrUser) return res.status(401).json({ error: "Não autorizado" });
+      const secretKey = rawBody?.secret_key;
+      const MIGRATE_SECRET = process.env.MIGRATE_SECRET ?? "moncao-migrate-2026";
+      if (!migrUser && secretKey !== MIGRATE_SECRET) return res.status(401).json({ error: "Não autorizado" });
       if (!isDbAvailable()) return res.status(200).json({ migrated: 0, message: "DB indisponível" });
       await withTimeout(ensureTables(), 4000);
       const sql = getDb();
