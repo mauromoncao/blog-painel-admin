@@ -222,9 +222,9 @@ export default async function handler(req, res) {
       await withTimeout(ensureTables(), 4000);
       const sql = getDb();
       const posts = await withTimeout(
-        sql`SELECT id,slug,title,subtitle,excerpt,content,"coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt",
+        sql`SELECT id,slug,title,subtitle,excerpt,"coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt",
             CASE WHEN "coverImage" IS NULL THEN NULL
-                 WHEN "coverImage" LIKE 'data:%' THEN NULL
+                 WHEN "coverImage" LIKE 'data:%' THEN '__base64__'
                  ELSE "coverImage" END AS "coverImage"
             FROM blog_posts WHERE status='published' AND "isPublished"=true ORDER BY "publishedAt" DESC, "createdAt" DESC`,
         5000
@@ -262,10 +262,7 @@ export default async function handler(req, res) {
       await withTimeout(ensureTables(), 4000);
       const sql = getDb();
       const rows = await withTimeout(
-        sql`SELECT id,slug,title,subtitle,excerpt,content,"coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt",
-            CASE WHEN "coverImage" IS NULL THEN NULL
-                 WHEN "coverImage" LIKE 'data:%' THEN NULL
-                 ELSE "coverImage" END AS "coverImage"
+        sql`SELECT id,slug,title,subtitle,excerpt,content,"coverImage","coverImageAlt","videoUrl","authorName",category,tags,"metaTitle","metaDescription","metaKeywords","ogImage","ctaText","ctaUrl",status,"isFeatured","isPublished","publishedAt","scheduledAt","createdAt","updatedAt"
             FROM blog_posts WHERE slug=${slug} AND status='published' AND "isPublished"=true LIMIT 1`,
         5000
       );
@@ -326,19 +323,71 @@ export default async function handler(req, res) {
       if (!b64 || !name || !type) return res.status(400).json({ error: "Campos obrigatórios: name, type, data" });
       if (size > 5 * 1024 * 1024) return res.status(400).json({ error: "Arquivo excede 5MB" });
       if (!type.startsWith("image/")) return res.status(400).json({ error: "Apenas imagens permitidas" });
-      const dataUrl = b64.startsWith("data:") ? b64 : `data:${type};base64,${b64}`;
+
+      // Extrair apenas o base64 puro (sem prefixo data:...)
+      const pureB64 = b64.startsWith("data:") ? b64.split(",")[1] : b64;
+      const dataUrl = `data:${type};base64,${pureB64}`;
       const key = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const record = { id: Date.now(), filename: key, originalName: name, mimeType: type, size: size ?? 0, url: dataUrl, fileKey: key, alt: name, createdAt: new Date().toISOString() };
+
+      // ── Tentar upload para Imgur (CDN público gratuito) ──────
+      let publicUrl = null;
+      try {
+        const imgurRes = await withTimeout(
+          fetch("https://api.imgur.com/3/image", {
+            method: "POST",
+            headers: {
+              Authorization: "Client-ID 546c25a59c58ad7",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ image: pureB64, type: "base64", name: key }),
+          }),
+          8000
+        );
+        if (imgurRes.ok) {
+          const imgurData = await imgurRes.json();
+          if (imgurData?.data?.link) publicUrl = imgurData.data.link;
+        }
+      } catch (imgurErr) {
+        console.error("[Upload] Imgur:", imgurErr.message);
+      }
+
+      // ── Fallback: Cloudinary upload não-assinado (se configurado) ──
+      if (!publicUrl && process.env.CLOUDINARY_UPLOAD_PRESET && process.env.CLOUDINARY_CLOUD_NAME) {
+        try {
+          const formBody = new URLSearchParams();
+          formBody.append("file", dataUrl);
+          formBody.append("upload_preset", process.env.CLOUDINARY_UPLOAD_PRESET);
+          const cdnRes = await withTimeout(
+            fetch(`https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`, {
+              method: "POST",
+              body: formBody,
+            }),
+            10000
+          );
+          if (cdnRes.ok) {
+            const cdnData = await cdnRes.json();
+            if (cdnData?.secure_url) publicUrl = cdnData.secure_url;
+          }
+        } catch (cdnErr) {
+          console.error("[Upload] Cloudinary:", cdnErr.message);
+        }
+      }
+
+      // ── URL final: CDN público ou base64 como fallback ──────
+      const finalUrl = publicUrl || dataUrl;
+
+      const record = { id: Date.now(), filename: key, originalName: name, mimeType: type, size: size ?? 0, url: finalUrl, fileKey: key, alt: name, createdAt: new Date().toISOString() };
       if (isDbAvailable()) {
         try {
           await withTimeout(ensureTables(), 4000);
           const sql = getDb();
-          const rows = await withTimeout(sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt) VALUES (${key},${name},${type},${size ?? 0},${dataUrl},${key},${name}) RETURNING *`, 4000);
+          const rows = await withTimeout(sql`INSERT INTO media_files (filename,"originalName","mimeType",size,url,"fileKey",alt) VALUES (${key},${name},${type},${size ?? 0},${finalUrl},${key},${name}) RETURNING *`, 4000);
           Object.assign(record, rows[0]);
         } catch (dbErr) {
           console.error("[Upload] DB:", dbErr.message);
         }
       }
+      console.log("[Upload] URL type:", publicUrl ? "CDN público" : "base64 fallback", "| name:", name);
       return res.status(200).json(record);
     } catch (e) {
       return res.status(500).json({ error: "Erro no upload: " + e.message });
