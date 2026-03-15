@@ -29,7 +29,7 @@ const allowedOrigins = [
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
-    if (allowedOrigins.some(o => origin.startsWith(o)) || origin.endsWith(".vercel.app")) {
+    if (allowedOrigins.some(o => origin.startsWith(o)) || origin.endsWith(".mauromoncao.adv.br")) {
       return cb(null, true);
     }
     cb(null, true); // permissivo em produção — restringir pelo env se necessário
@@ -97,7 +97,7 @@ const JWT_SECRET_OAUTH     = process.env.JWT_SECRET            ?? "change-me-in-
 // Determinar base URL dinamicamente
 function getBaseUrl(req: Request): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  // CF Pages: use CORS_ORIGIN env var
   return `${req.protocol}://${req.get("host")}`;
 }
 

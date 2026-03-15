@@ -4,7 +4,7 @@ import * as schema from "../shared/schema.js";
 import { eq, desc, like, and, or, sql, count } from "drizzle-orm";
 
 const connectionString = process.env.DATABASE_URL;
-// Em produção no Vercel usamos api/index.js (serverless sem banco)
+// Em produção no Cloudflare Pages usamos api/index.js (Pages Function sem banco)
 // O server/ com banco só roda localmente — não travar o build se DATABASE_URL ausente
 if (!connectionString && process.env.NODE_ENV !== "production") {
   throw new Error("DATABASE_URL is required");

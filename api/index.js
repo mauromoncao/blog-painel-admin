@@ -527,7 +527,7 @@ export default async function handler(req, res) {
 
   // Conectar ao banco
   if (!isDbAvailable()) {
-    return res.status(200).json([{ error: { json: { message: "Banco não configurado. Configure DATABASE_URL no Vercel." } } }]);
+    return res.status(200).json([{ error: { json: { message: "Banco não configurado. Configure DATABASE_URL no Cloudflare Pages." } } }]);
   }
   let sql;
   try {

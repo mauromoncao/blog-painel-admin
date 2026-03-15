@@ -4,3 +4,10 @@ dist/
 uploads/
 *.log
 .DS_Store
+
+# Segurança adicional
+secrets/
+credentials/
+private/
+*.pem
+*.key
