@@ -1,4 +1,4 @@
-// api/auth/google.js — Vercel Serverless Function
+// api/auth/google.js — Cloudflare Pages Function
 // Inicia o fluxo Google OAuth
 
 export default function handler(req, res) {
@@ -8,11 +8,9 @@ export default function handler(req, res) {
     return res.redirect("/login?error=google_not_configured");
   }
 
-  // Base URL — usa VERCEL_URL em produção
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-    ? process.env.NEXT_PUBLIC_APP_URL
-    : process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
+  // Base URL — usa CORS_ORIGIN (Cloudflare Pages env) ou x-forwarded-host
+  const baseUrl = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN
     : `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
 
   const redirectUri = `${baseUrl}/api/auth/google/callback`;

@@ -65,9 +65,9 @@ const ENV_GROUPS = [
       {
         key: "NODE_ENV",
         required: false,
-        description: "Ambiente de execução. Em produção (Vercel) deve ser 'production'.",
+        description: "Ambiente de execução. Em produção (Cloudflare Pages) deve ser 'production'.",
         example: "production",
-        tip: "A Vercel define esta variável automaticamente — não precisa configurar.",
+        tip: "Cloudflare Pages define automaticamente — não precisa configurar.",
         link: null,
         linkLabel: null,
       },
@@ -76,7 +76,7 @@ const ENV_GROUPS = [
         required: false,
         description: "URL base do frontend permitida pelo CORS. Útil ao usar domínio customizado.",
         example: "https://admin.mauromoncao.adv.br",
-        tip: "Se estiver usando o domínio padrão da Vercel, não é obrigatória.",
+        tip: "Se estiver usando o domínio padrão do Cloudflare Pages, não é obrigatória.",
         link: null,
         linkLabel: null,
       },
@@ -85,7 +85,7 @@ const ENV_GROUPS = [
         required: false,
         description: "Porta do servidor Express (somente em ambiente local, dev).",
         example: "3001",
-        tip: "Não é necessária no Vercel — use apenas para desenvolvimento local.",
+        tip: "Não é necessária no Cloudflare Pages — use apenas para desenvolvimento local.",
         link: null,
         linkLabel: null,
       },
@@ -120,7 +120,7 @@ const ENV_GROUPS = [
         key: "GOOGLE_REDIRECT_URI",
         required: false,
         description: "URI de redirecionamento após login com Google (deve estar no Google Cloud).",
-        example: "https://seu-painel.vercel.app/api/auth/google/callback",
+        example: "https://blog-painel.mauromoncao.adv.br/api/auth/google/callback",
         tip: "Adicione exatamente esta URL nas URIs autorizadas no Google Cloud.",
         link: null,
         linkLabel: null,
@@ -175,7 +175,7 @@ const ENV_GROUPS = [
 ];
 
 // ── Status de verificação das variáveis ─────────────────────────
-// (O frontend não tem acesso direto às env do Vercel — simula via API)
+// (O frontend não tem acesso direto às env do Cloudflare Pages — simula via API)
 async function checkEnvStatus(): Promise<Record<string, "ok" | "missing" | "unknown">> {
   try {
     const token = localStorage.getItem("admin_token");
@@ -231,7 +231,7 @@ export default function EnvVariables() {
             Environment Variables
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Variáveis de ambiente que devem ser configuradas no painel da Vercel
+            Variáveis de ambiente que devem ser configuradas no Cloudflare Pages Dashboard
           </p>
         </div>
         <button
@@ -271,8 +271,8 @@ export default function EnvVariables() {
         <Info size={18} style={{ color: GOLD, flexShrink: 0, marginTop: 2 }} />
         <div className="text-sm text-amber-800">
           <strong>Como configurar:</strong> Acesse{" "}
-          <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer"
-            className="underline font-semibold">vercel.com</a>
+          <a href="https://dash.cloudflare.com" target="_blank" rel="noreferrer"
+            className="underline font-semibold">dash.cloudflare.com</a>
           {" "}→ Selecione o projeto <strong>blog-painel-admin</strong> →{" "}
           <strong>Settings</strong> → <strong>Environment Variables</strong> → adicione cada
           variável com o valor correspondente → clique em <strong>Save</strong> → faça um novo
@@ -419,12 +419,12 @@ export default function EnvVariables() {
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3"
           style={{ background: "#F0F4FF" }}>
           <Globe size={18} style={{ color: NAVY }} />
-          <span className="font-semibold text-gray-800 text-sm">Passo a passo — Vercel</span>
+          <span className="font-semibold text-gray-800 text-sm">Passo a passo — Cloudflare Pages</span>
         </div>
         <div className="p-6">
           <ol className="space-y-3">
             {[
-              { step: "1", text: 'Acesse vercel.com e entre na sua conta', bold: "vercel.com" },
+              { step: "1", text: 'Acesse dash.cloudflare.com e entre na sua conta', bold: "dash.cloudflare.com" },
               { step: "2", text: 'Clique no projeto "blog-painel-admin"' },
               { step: "3", text: 'Vá em Settings → Environment Variables' },
               { step: "4", text: 'Clique em "Add New" e preencha o Name e o Value de cada variável obrigatória acima' },
@@ -445,13 +445,13 @@ export default function EnvVariables() {
 
           <div className="mt-5">
             <a
-              href="https://vercel.com/dashboard"
+              href="https://dash.cloudflare.com"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-white text-sm shadow-sm transition hover:opacity-90"
               style={{ background: `linear-gradient(135deg, ${NAVY}, #2d4a8a)` }}
             >
-              Abrir Vercel Dashboard <ExternalLink size={14} />
+              Abrir Cloudflare Dashboard <ExternalLink size={14} />
             </a>
           </div>
         </div>
