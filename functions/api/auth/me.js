@@ -1,6 +1,6 @@
 // CF Pages Function — /api/auth/me
 // Validates JWT token and returns user info
-// Tries VPS first (via tRPC auth.me), falls back to local JWT validation
+// VPS auth.me reads token from Cookie (admin_token), NOT from Authorization header
 
 export async function onRequestGet(context) {
   const VPS_API = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
@@ -19,17 +19,16 @@ export async function onRequestGet(context) {
     return jsonResponse({ error: 'Unauthorized' }, 401)
   }
 
-  // Try VPS via tRPC auth.me
+  // ── 1. Try VPS via tRPC auth.me (pass token as Cookie) ─────────
+  // VPS reads JWT from Cookie "admin_token", not from Authorization header
   try {
     const controller = new AbortController()
-    const tid = setTimeout(() => controller.abort(), 4000)
+    const tid = setTimeout(() => controller.abort(), 6000)
 
-    // tRPC GET query format
-    const inputEncoded = encodeURIComponent(JSON.stringify({ '0': { json: null } }))
-    const vpsResponse = await fetch(`${VPS_API}/api/trpc/auth.me?batch=1&input=${inputEncoded}`, {
+    const vpsResponse = await fetch(`${VPS_API}/api/trpc/auth.me`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Cookie': `admin_token=${token}`,
         'X-Forwarded-Proto': 'https',
       },
       signal: controller.signal,
@@ -38,16 +37,16 @@ export async function onRequestGet(context) {
 
     if (vpsResponse.ok) {
       const vpsData = await vpsResponse.json()
-      // tRPC batch response: [{ result: { data: { json: user } } }]
+      // tRPC response: { result: { data: { id, name, email, role } } }
       const item = Array.isArray(vpsData) ? vpsData[0] : vpsData
       const userData = item?.result?.data?.json || item?.result?.data
       if (userData && userData.id) {
         return jsonResponse(userData, 200)
       }
     }
-  } catch { /* VPS down or error */ }
+  } catch { /* VPS down or timeout → fallback */ }
 
-  // Fallback: validate JWT locally
+  // ── 2. Fallback: validate JWT locally ──────────────────────────
   if (!JWT_SECRET) {
     return jsonResponse({ error: 'Unauthorized' }, 401)
   }
@@ -78,10 +77,12 @@ export async function onRequestGet(context) {
       throw new Error('Token expired')
     }
 
+    // VPS JWT only contains { id, iat, exp } — enrich with known data
+    // If name/email not in token, return minimal info (frontend will use cached login response)
     return jsonResponse({
       id: payload.id || 1,
       name: payload.name || 'Admin',
-      email: payload.email,
+      email: payload.email || null,
       role: payload.role || 'admin',
     }, 200)
   } catch (err) {

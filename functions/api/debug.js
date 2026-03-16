@@ -1,13 +1,15 @@
-// Debug endpoint — tests real login via VPS
+// Debug endpoint — tests VPS connectivity and auth flow
 export async function onRequestGet(context) {
   const VPS_API = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
   
-  let vpsResult = 'not_tested'
-  let vpsStatus = 0
-  let vpsError = null
+  let loginStatus = 0
   let loginResult = null
+  let loginError = null
+  let meStatus = 0
+  let meResult = null
 
-  // Test with real credentials
+  // Test 1: Login
+  let token = null
   try {
     const ctrl = new AbortController()
     setTimeout(() => ctrl.abort(), 8000)
@@ -17,27 +19,45 @@ export async function onRequestGet(context) {
       body: JSON.stringify({ email: 'admin@mauromoncao.adv.br', password: 'BenBlog@Admin2026' }),
       signal: ctrl.signal,
     })
-    vpsStatus = r.status
-    const txt = await r.text()
-    vpsResult = txt.substring(0, 300)
-    
+    loginStatus = r.status
     if (r.ok) {
-      try {
-        const data = JSON.parse(txt)
-        loginResult = { ok: true, hasToken: !!data?.result?.data?.token, email: data?.result?.data?.email }
-      } catch(e) { loginResult = { ok: false, parseError: e.message } }
+      const data = await r.json()
+      token = data?.result?.data?.token
+      loginResult = { ok: true, hasToken: !!token, email: data?.result?.data?.email }
+    } else {
+      const txt = await r.text()
+      loginError = txt.substring(0, 200)
     }
   } catch (e) {
-    vpsError = e.message
-    vpsResult = 'fetch_error'
+    loginError = e.message
+  }
+
+  // Test 2: Me (with cookie)
+  if (token) {
+    try {
+      const ctrl2 = new AbortController()
+      setTimeout(() => ctrl2.abort(), 6000)
+      const r2 = await fetch(`${VPS_API}/api/trpc/auth.me`, {
+        method: 'GET',
+        headers: { 'Cookie': `admin_token=${token}` },
+        signal: ctrl2.signal,
+      })
+      meStatus = r2.status
+      if (r2.ok) {
+        const data2 = await r2.json()
+        const item = Array.isArray(data2) ? data2[0] : data2
+        const userData = item?.result?.data?.json || item?.result?.data
+        meResult = { ok: true, user: userData }
+      }
+    } catch (e) {
+      meResult = { ok: false, error: e.message }
+    }
   }
 
   return new Response(JSON.stringify({
     vps_url: VPS_API,
-    vps_status: vpsStatus,
-    vps_result_preview: vpsResult,
-    vps_error: vpsError,
-    login_result: loginResult,
+    login: { status: loginStatus, result: loginResult, error: loginError },
+    me: { status: meStatus, result: meResult },
     env: {
       VPS_API_URL: context.env.VPS_API_URL || 'default',
       JWT_SECRET: !!context.env.JWT_SECRET,
