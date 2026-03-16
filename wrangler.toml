@@ -4,7 +4,7 @@ pages_build_output_dir = "dist/public"
 
 # Variáveis públicas — disponíveis automaticamente nas CF Pages Functions
 [vars]
-VPS_API_URL = "http://181.215.135.202:3040"
+VPS_API_URL = "https://api.mauromoncao.adv.br/blog"
 GOOGLE_CLIENT_ID = "9749981324-sv27al0lv1t7ikb2i1fpdq05k65hjaoe.apps.googleusercontent.com"
 CORS_ORIGIN = "https://blog-painel.mauromoncao.adv.br"
 

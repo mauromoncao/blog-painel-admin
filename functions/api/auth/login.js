@@ -18,7 +18,9 @@ const EMAIL_NAMES = {
 }
 
 export async function onRequestPost(context) {
-  const VPS_API    = context.env.VPS_API_URL || 'http://181.215.135.202:3040'
+  // VPS_API_URL via [vars] no wrangler.toml ou CF Pages Dashboard
+  // Usa HTTPS via api-gateway (api.mauromoncao.adv.br/blog) para CF Workers poderem acessar
+  const VPS_API    = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
   const JWT_SECRET = context.env.JWT_SECRET
 
   let body

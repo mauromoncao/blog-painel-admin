@@ -1,6 +1,6 @@
 // CF Pages Function — proxy /api/upload to VPS backend (blog-painel port 3040)
 export async function onRequest(context) {
-  const VPS_API = context.env.VPS_API_URL || 'http://181.215.135.202:3040'
+  const VPS_API = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
 
   const url = new URL(context.request.url)
   const targetUrl = VPS_API + '/api/upload' + url.search
