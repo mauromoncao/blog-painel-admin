@@ -1,6 +1,6 @@
 // CF Pages Function — proxy /api/trpc/* to VPS backend (blog-painel)
 export async function onRequest(context) {
-  const VPS_API = context.env.VPS_API_URL || 'http://181.215.135.202:3040'
+  const VPS_API = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
   
   const url = new URL(context.request.url)
   const pathPart = url.pathname.replace('/api/trpc', '')

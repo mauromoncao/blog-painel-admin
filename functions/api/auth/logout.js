@@ -2,7 +2,7 @@
 // Clears auth cookie and optionally notifies VPS via tRPC
 
 export async function onRequestPost(context) {
-  const VPS_API = context.env.VPS_API_URL || 'http://181.215.135.202:3040'
+  const VPS_API = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
 
   // Try to notify VPS logout via tRPC (fire-and-forget)
   try {

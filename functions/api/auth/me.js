@@ -3,7 +3,7 @@
 // Tries VPS first (via tRPC auth.me), falls back to local JWT validation
 
 export async function onRequestGet(context) {
-  const VPS_API = context.env.VPS_API_URL || 'http://181.215.135.202:3040'
+  const VPS_API = context.env.VPS_API_URL || 'https://api.mauromoncao.adv.br/blog'
   const JWT_SECRET = context.env.JWT_SECRET
 
   const authHeader = context.request.headers.get('Authorization') || ''
