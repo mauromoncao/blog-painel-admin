@@ -1,3 +1,19 @@
 name = "blog-painel-admin"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "dist/public"
+
+# Variáveis públicas — disponíveis automaticamente nas CF Pages Functions
+[vars]
+VPS_API_URL = "http://181.215.135.202:3040"
+GOOGLE_CLIENT_ID = "9749981324-sv27al0lv1t7ikb2i1fpdq05k65hjaoe.apps.googleusercontent.com"
+CORS_ORIGIN = "https://blog-painel.mauromoncao.adv.br"
+
+# IMPORTANTE: Os seguintes segredos devem ser adicionados manualmente no
+# Cloudflare Pages Dashboard → Settings → Environment Variables:
+#
+#   JWT_SECRET          (segredo)
+#   ADMIN_PASS_1        (segredo)
+#   ADMIN_PASS_2        (segredo)
+#   ADMIN_PASS_3        (segredo)
+#   ASSIST_PASS_1       (segredo)
+#   GOOGLE_CLIENT_SECRET (segredo)
