@@ -212,7 +212,10 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const url = req.url ?? "";
-  const rawBody = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body ?? {});
+  // rawBody pode ser array [{"json":{...}}] (novo formato tRPC) ou objeto {"0":{...}} (legado)
+  const rawBody = typeof req.body === "string"
+    ? JSON.parse(req.body || "[]")
+    : (req.body ?? []);
 
   // ── ROTAS PÚBLICAS (sem autenticação) ────────────────────
   // blog.listPublic — posts publicados para o site institucional
@@ -553,32 +556,39 @@ export default async function handler(req, res) {
     }
 
     // Extrair inputs: GET usa query string ?input=JSON, POST usa body
+    // Suporta DOIS formatos tRPC:
+    //   Formato A (legado):  {"0":{"json":{...}}, "1":{...}}   — objeto com chave string
+    //   Formato B (oficial): [{"json":{...}}, {"json":{...}}]  — array JSON
     let inputs = {};
 
-    // 1. Tentar do body (mutations POST)
-    if (rawBody && typeof rawBody === "object" && Object.keys(rawBody).length > 0) {
-      for (const key of Object.keys(rawBody)) {
-        const idx = parseInt(key);
-        if (!isNaN(idx)) {
-          const item = rawBody[key];
+    function parseInputObject(obj) {
+      if (Array.isArray(obj)) {
+        // Formato B: array
+        obj.forEach((item, idx) => {
           inputs[idx] = item?.json ?? item?.input ?? item ?? {};
+        });
+      } else if (obj && typeof obj === "object") {
+        // Formato A: objeto com chaves "0", "1", ...
+        for (const key of Object.keys(obj)) {
+          const idx = parseInt(key);
+          if (!isNaN(idx)) {
+            const item = obj[key];
+            inputs[idx] = item?.json ?? item?.input ?? item ?? {};
+          }
         }
       }
     }
 
-    // 2. Tentar da query string (queries GET) — formato: input={"0":{"json":{...}}}
+    // 1. Tentar do body (mutations POST)
+    if (rawBody && (Array.isArray(rawBody) ? rawBody.length > 0 : Object.keys(rawBody).length > 0)) {
+      parseInputObject(rawBody);
+    }
+
+    // 2. Tentar da query string (queries GET)
     if (Object.keys(inputs).length === 0 && queryParams["input"]) {
       try {
         const parsed = JSON.parse(queryParams["input"]);
-        if (parsed && typeof parsed === "object") {
-          for (const key of Object.keys(parsed)) {
-            const idx = parseInt(key);
-            if (!isNaN(idx)) {
-              const item = parsed[key];
-              inputs[idx] = item?.json ?? item?.input ?? item ?? {};
-            }
-          }
-        }
+        parseInputObject(parsed);
       } catch { /* input malformado — ignora */ }
     }
 
@@ -597,7 +607,10 @@ export default async function handler(req, res) {
     );
 
     // Sempre retornar array (tRPC client sempre espera array no batch)
-    const isBatchReq = url.includes("batch=1") || endpoints.length > 1 || (rawBody && rawBody["0"] !== undefined) || queryParams["batch"] === "1";
+    const isBatchReq = url.includes("batch=1") || endpoints.length > 1 ||
+      (Array.isArray(rawBody) && rawBody.length > 0) ||
+      (rawBody && !Array.isArray(rawBody) && rawBody["0"] !== undefined) ||
+      queryParams["batch"] === "1";
     if (isBatchReq) {
       return res.status(200).json(results);
     } else {
