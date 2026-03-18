@@ -1,16 +1,24 @@
-// api.ts — Cliente HTTP simples para o painel admin
-// Substitui o tRPC para evitar problemas de serialização
+// api.ts — Cliente HTTP para o painel admin
+// Usa o formato oficial tRPC batch: POST body = [{"json": input}], GET input = [{"json": input}]
 
 function getToken(): string {
   return localStorage.getItem("admin_token") ?? "";
 }
 
+// Endpoints que são queries (GET) vs mutations (POST)
+function isQueryEndpoint(endpoint: string): boolean {
+  const mutations = ["upsert", "delete", "update", "upload", "setup", "login", "logout"];
+  return !mutations.some(m => endpoint.includes(m));
+}
+
 async function call<T>(endpoint: string, input?: unknown): Promise<T> {
   const token = getToken();
-  const isQuery = !endpoint.includes("upsert") && !endpoint.includes("delete") &&
-    !endpoint.includes("update") && !endpoint.includes("upload") &&
-    !endpoint.includes("setup") && !endpoint.includes("login") &&
-    !endpoint.includes("logout");
+  const isQuery = isQueryEndpoint(endpoint);
+
+  // Formato tRPC batch oficial:
+  // GET:  ?batch=1&input=%5B%7B%22json%22%3A...%7D%5D  (array JSON)
+  // POST: body = [{"json": input}]                     (array JSON)
+  const batchInput = JSON.stringify([{ json: input ?? null }]);
 
   let url = `/api/trpc/${endpoint}?batch=1`;
   const headers: Record<string, string> = {
@@ -21,31 +29,33 @@ async function call<T>(endpoint: string, input?: unknown): Promise<T> {
   let fetchOptions: RequestInit;
 
   if (isQuery) {
-    // Queries usam GET com input na query string
-    const inputStr = encodeURIComponent(JSON.stringify({ "0": { json: input ?? null } }));
-    url += `&input=${inputStr}`;
+    url += `&input=${encodeURIComponent(batchInput)}`;
     fetchOptions = { method: "GET", headers };
   } else {
-    // Mutations usam POST com body
     fetchOptions = {
       method: "POST",
       headers,
-      body: JSON.stringify({ "0": { json: input } }),
+      body: batchInput,
     };
   }
 
   const res = await fetch(url, { ...fetchOptions, credentials: "include" });
   const data = await res.json();
 
-  // O servidor retorna array: [{result: {data: {json: ...}}}] ou [{error: {json: {...}}}]
+  // tRPC batch retorna sempre array: [{result:{data:{json:...}}}] ou [{error:{json:{...}}}]
   const item = Array.isArray(data) ? data[0] : data;
 
   if (item?.error) {
-    const msg = item.error?.json?.message ?? item.error?.message ?? "Erro desconhecido";
+    const msg =
+      item.error?.json?.message ??
+      item.error?.message ??
+      "Erro desconhecido";
     throw new Error(msg);
   }
 
-  return (item?.result?.data?.json ?? item?.result?.data ?? null) as T;
+  // Suporta tanto {data:{json:X}} quanto {data:X}
+  const result = item?.result?.data;
+  return (result?.json !== undefined ? result.json : result ?? null) as T;
 }
 
 // ── API Client completo ────────────────────────────────────────
@@ -90,40 +100,40 @@ export const api = {
   },
 
   blog: {
-    list: () => call<any[]>("blog.list"),
+    list:    ()           => call<any[]>("blog.list"),
     getById: (id: number) => call<any>("blog.getById", { id }),
-    upsert: (data: any) => call<any>("blog.upsert", data),
-    delete: (id: number) => call<{ ok: boolean }>("blog.delete", { id }),
+    upsert:  (data: any)  => call<any>("blog.upsert", data),
+    delete:  (id: number) => call<{ ok: boolean }>("blog.delete", { id }),
   },
 
   categories: {
-    list: () => call<any[]>("categories.list"),
-    upsert: (data: any) => call<any>("categories.upsert", data),
+    list:   ()           => call<any[]>("categories.list"),
+    upsert: (data: any)  => call<any>("categories.upsert", data),
     delete: (id: number) => call<{ ok: boolean }>("categories.delete", { id }),
   },
 
   faq: {
-    list: () => call<any[]>("faq.list"),
-    upsert: (data: any) => call<any>("faq.upsert", data),
+    list:   ()           => call<any[]>("faq.list"),
+    upsert: (data: any)  => call<any>("faq.upsert", data),
     delete: (id: number) => call<{ ok: boolean }>("faq.delete", { id }),
   },
 
   leads: {
-    list: () => call<any[]>("leads.list"),
-    updateStatus: (id: number, status: string) => call<any>("leads.updateStatus", { id, status }),
-    delete: (id: number) => call<{ ok: boolean }>("leads.delete", { id }),
+    list:         ()                              => call<any[]>("leads.list"),
+    updateStatus: (id: number, status: string)    => call<any>("leads.updateStatus", { id, status }),
+    delete:       (id: number)                    => call<{ ok: boolean }>("leads.delete", { id }),
   },
 
   media: {
-    list: () => call<any[]>("media.list"),
-    upload: (data: any) => call<any>("media.upload", data),
+    list:   ()           => call<any[]>("media.list"),
+    upload: (data: any)  => call<any>("media.upload", data),
     delete: (id: number) => call<any>("media.delete", { id }),
   },
 
   settings: {
-    list: () => call<any[]>("settings.list"),
-    upsert: (key: string, value: string) => call<{ ok: boolean }>("settings.upsert", { key, value }),
-    upsertMany: (items: { key: string; value: string }[]) => call<{ ok: boolean }>("settings.upsertMany", items),
+    list:       ()                                              => call<any[]>("settings.list"),
+    upsert:     (key: string, value: string)                   => call<{ ok: boolean }>("settings.upsert", { key, value }),
+    upsertMany: (items: { key: string; value: string }[])      => call<{ ok: boolean }>("settings.upsertMany", items),
   },
 
   upload: (file: { name: string; type: string; size: number; data: string }) =>
