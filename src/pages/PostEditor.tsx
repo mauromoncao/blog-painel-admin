@@ -170,7 +170,12 @@ export default function PostEditor() {
       const media = await res.json();
       set("coverImage", media.url);
       set("coverImageAlt", media.originalName.replace(/\.[^.]+$/, ""));
-      toast.success("Imagem enviada com sucesso!");
+      // Avisar se o upload ficou em base64 (CDN indisponível) — não aparece no site público
+      if (media.url?.startsWith("data:")) {
+        toast.warning("Imagem salva localmente (CDN indisponível). A capa pode não aparecer no site público. Tente novamente mais tarde.");
+      } else {
+        toast.success("Imagem enviada com sucesso!");
+      }
     } catch (e: any) {
       toast.error(e.message ?? "Erro no upload");
     } finally {
@@ -377,9 +382,15 @@ export default function PostEditor() {
                     <img src={form.coverImage} alt={form.coverImageAlt || "Capa"}
                       className="w-full h-52 object-cover" />
                     <div className="absolute top-2 right-2 flex gap-2">
-                      <span className="flex items-center gap-1 bg-green-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
-                        <Check size={11} /> Imagem definida
-                      </span>
+                      {form.coverImage.startsWith("data:") ? (
+                        <span className="flex items-center gap-1 bg-amber-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+                          ⚠️ Base64 — não aparece no site
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 bg-green-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+                          <Check size={11} /> Imagem definida
+                        </span>
+                      )}
                       <button onClick={() => { set("coverImage", ""); set("coverImageAlt", ""); }}
                         className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600">
                         <X size={13} />
